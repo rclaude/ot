@@ -4,7 +4,13 @@
 <script src=client.js></script>
 
 <script>
-  var socket = new WebSocket('ws://game.example.com:12010/updates');
-  socket.send('bouya'); 
+  var socket = new WebSocket('ws://localhost:1234');
+  console.log(socket);
+  socket.onopen = function(){
+    socket.send('bouya'); 
+  };
+  socket.onmessage = function(){
+    console.log(arguments);
+  };
 </script>
 

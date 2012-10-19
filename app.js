@@ -1,8 +1,9 @@
 var http 		= require('http'),
     fs	 		= require('fs'),
-    textOperation	= require('./server/text-operation'),
-    wrappedOperation	= require('./server/wrapped-operation'),
-    server		= require('./server/server'); 
+    TextOperation	= require('./server/text-operation'),
+    WrappedOperation	= require('./server/wrapped-operation'),
+    OTServer		= require('./server/server'),
+    WebSocket		= require('ws');
 
 http.Server(function(req, res){
   var url = req.url;
@@ -16,5 +17,12 @@ http.Server(function(req, res){
     }
     res.end(data);
   });
-
 }).listen(8080,'127.1');
+
+var s = new WebSocket.Server({port: +process.argv[2] || 1234});
+s.on('connection', function(socket) {
+  socket.on('message', function(message) {
+    console.log('received: %s', message);
+  });
+  socket.send('something');
+});
