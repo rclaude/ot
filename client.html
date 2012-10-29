@@ -1,0 +1,89 @@
+<!doctype html>
+<meta charset="utf-8">
+<title> client </title>
+
+<!--
+<style>
+  html, body {
+    height: 100%;
+    width: 100%;
+    border: 0px;
+    margin: 0px;
+    padding: 0px;
+    position: absolute;
+    font-family: monospace;
+  }
+</style>
+-->
+
+<nav>
+  <input id=color type=color>
+</nav>
+
+<canvas id=canvas resize></canvas>
+
+<script src=./lib/paper.js></script>
+<script src=./lib/webrtc.js></script>
+<script>
+ 
+  var channel = new WebRTC.DataChannel('ws://localhost:1234'),
+      color = document.getElementById('color'),
+      path = undefined,
+      handle = undefined,
+      objects = {};
+
+  paper.install(window);
+
+  window.onload = function () {
+    paper.setup(canvas);
+    // create a simple drawing tool
+    var tool = new Tool();
+
+    channel.on('state', function(data) {
+      console.log('state', data); 
+    });
+
+    channel.on('point', function(data) {
+      console.log('point', data); 
+      if (objects[data.handle] === undefined) {
+        objects[data.handle] = new paper.Path();
+        objects[data.handle].strokeColor = data.point.color;
+      }
+      objects[data.handle].add(data.point);
+      paper.view.draw();
+    });
+ 
+    channel.on('handle', function(data) {
+      handle = data;
+    });
+ 
+    channel.on('finalize', function(data) {
+      //objects[data.handle].remove();
+      //objects[data.handle] = DANGER
+    });
+    
+    tool.onMouseDown = function (event) {
+    	// Create a new path and set its stroke color to black:
+    	path = new paper.Path();
+      var point = event.point;
+      point.color = color.value;
+      channel.send('point', point);
+    	path.add(point);
+    	path.strokeColor = point.color;
+    };
+    
+    // While the user drags the mouse, points are added to the path
+    // at the position of the mouse:
+    tool.onMouseDrag = function (event) {
+    	path.add(event.point);
+      channel.send('point', event.point);
+    };
+    
+    // When the mouse is released, we simplify the path:
+    tool.onMouseUp = function (event) {
+      path.simplify(10);
+      console.log(path);
+      channel.send('finalize'/*, TODO */);
+    };
+  };
+</script>
