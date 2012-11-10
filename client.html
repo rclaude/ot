@@ -58,8 +58,20 @@
     });
  
     channel.on('finalize', function(data) {
-      //objects[data.handle].remove();
-      //objects[data.handle] = DANGER
+      
+      var path = new paper.Path();
+      path.strokeColor = objects[data.handle].strokeColor;
+
+      for (var i = 0 ; i < data.curves.length ; i++) {
+        
+        path.add(new paper.Point(data.curves[i].pointx, data.curves[i].pointy));
+        path.segments[i].handleIn = new paper.Point(data.curves[i].handleInx,data.curves[i].handleIny);
+        path.segments[i].handleOut = new paper.Point(data.curves[i].handleOutx,data.curves[i].handleOuty);
+
+      }
+      objects[data.handle].remove();
+      objects[data.handle] = path;
+      paper.view.draw();
     });
     
     tool.onMouseDown = function (event) {
@@ -82,8 +94,22 @@
     // When the mouse is released, we simplify the path:
     tool.onMouseUp = function (event) {
       path.simplify(10);
-      console.log(path);
-      channel.send('finalize'/*, TODO */);
+
+      var curves = [];
+      for (var i = 0 ; i < path.segments.length ; i++) {
+        var seg = path.segments[i];
+        console.log('segment : ' + seg);
+        curves.push({
+          pointx: seg._point._x,
+          pointy: seg._point._y,
+          handleInx: seg._handleIn._x,
+          handleIny: seg._handleIn._y,
+          handleOutx: seg._handleOut._x,
+          handleOuty: seg._handleOut._y
+        });
+      } 
+      paper.view.draw();
+      channel.send('finalize',curves);
     };
   };
 </script>

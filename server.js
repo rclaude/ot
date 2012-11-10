@@ -31,6 +31,7 @@ server.on('connection', function(socket) {
   
   socket.on('point', function (data) {
     console.log('point', client, data, 'object', handle, 'in', objects.length);
+    
     if (handle === undefined) {
       handle = objects.length;
       objects.push([]);
@@ -51,14 +52,24 @@ server.on('connection', function(socket) {
 
   socket.on('finalize', function (data) {
     console.log('finalize', client, data);
+    
+    objects[handle] = data;
+    
+    for (var i in sockets) {
+      if (i != client) {
+        send(sockets[i], 'finalize', {
+          handle: handle,
+          curves: data
+        });
+      }
+    }
+
     handle = undefined;
   });
 
   socket.on('close', function () {
     console.log('close', client);
+
     sockets = sockets.splice(sockets.indexOf(socket));
   });
 });
-
-
-
