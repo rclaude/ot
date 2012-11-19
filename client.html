@@ -17,17 +17,24 @@
     width: 30px;
     margin: 10px;
   }
+  .hidden {
+    display: none;
+  }
 </style>
 
-<form id=bar>
-  <input name=color type=color>
-  <input name=width type=number value=1 min=1 max=10>
-  <input name=tool  type=radio value=pen checked> draw
-  <input name=tool  type=radio value=eraser> erase
-  <input name=tool  type=radio value=hand> move
+<form id=bar action=http://localhost:8080/upload enctype=multipart/form-data method=post target=uploader>
+  <input name=color  type=color>
+  <input name=width  type=number value=1 min=1 max=10>
+  <input name=tool   type=radio  value=pen checked> draw
+  <input name=tool   type=radio  value=eraser> erase
+  <input name=tool   type=radio  value=hand> move
+ <input name=upload  type=file>
+  <input type=submit value=submit>
 </form>
 
 <canvas id=canvas resize></canvas>
+
+<iframe id=uploader src=http://localhost:8080 class=hidden height=500 width=700></iframe>
 
 <script src=./lib/paper.js></script>
 <script src=./lib/webrtc.js></script>

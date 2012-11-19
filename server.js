@@ -1,24 +1,23 @@
-var ws = require('ws');
+var ws = require('ws'),
+    http = require('http'),
+    util = require('util'),
+    formidable = require('formidable');
 
-var server = new ws.Server({ port: +process.argv[2] || 1234 });
-
-var sockets = [];
-var objects = [];
+var server = new ws.Server({ port: +process.argv[2] || 1234 }),
+    sockets = [], objects = [];
 
 function send(socket, event, data) {
   if (socket) {
-    try{
+    try {
       socket.send(JSON.stringify({ event: event, data: data }));
-    }catch(e){
+    } catch(e) {
       console.log('WARNING : a disconnected client is still in the socket list');
     }
   }
 }
 
-function broadcast (from, type, data){
-  for (var i in sockets) 
-    if (i != from) 
-      send(sockets[i], type, data)
+function broadcast (from, type, data) {
+  for (var i in sockets) if (i != from) send(sockets[i], type, data);
 }
 
 server.on('connection', function(socket) {
@@ -73,3 +72,19 @@ server.on('connection', function(socket) {
     sockets.splice(sockets.indexOf(socket));
   });
 });
+
+
+/* Uploader */
+
+http.createServer(function(req, res) {
+  if (req.url == '/upload' && req.method.toLowerCase() == 'post') {
+    // parse a file upload
+    var form = new formidable.IncomingForm();
+    form.parse(req, function(err, fields, files) {
+      console.log(files.upload.path);
+      res.end('yes');
+    });
+    return;
+  }
+  res.end('no');
+}).listen(8080);
