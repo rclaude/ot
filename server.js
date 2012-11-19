@@ -22,22 +22,11 @@ function broadcast (from, type, data){
 }
 
 server.on('connection', function(socket) {
-
   console.log('connected');
-
   var client = sockets.length,
       handle = undefined;
-
   sockets.push(socket);
-
   send(socket, 'state', objects); // a key frame
-
-  /*
-  socket.on('open', function () {
-    console.log('open -> give state');
-    send(socket, 'state', objects); // a key frame
-  });
-  */
 
   socket.on('message', function (data) {
     var message = JSON.parse(data);
@@ -46,28 +35,25 @@ server.on('connection', function(socket) {
   
   socket.on('point', function (data) {
     //console.log('point', client, data, 'object', handle, 'in', objects.length);
-    
     if (handle === undefined) {
       handle = objects.length;
       objects[handle] = [];
       send(socket, 'handle', handle);
     }
-    
     objects[handle].push(data);
     broadcast(client, 'point', { handle: handle, point: data });
   });
 
   socket.on('finalize', function (data) {
     //console.log('finalize', client, data);
-    
-    objects[handle] = data;
-    broadcast(client, 'finalize', { handle: handle, obj: data });
-    handle = undefined;
+    objects[data.handle] = data.obj;
+    broadcast(client, 'finalize', data);
+    if(handle === data.handle)
+      handle = undefined;
   });
 
   socket.on('move', function(data) {
     //console.log('move', client, data)
-
     if (!objects[data.handle].move) 
       objects[data.handle].move = data.move;
     else { 
@@ -79,13 +65,11 @@ server.on('connection', function(socket) {
 
   socket.on('delete', function(data) {
     //console.log('delete', client, data);
-
     broadcast(client, 'delete', data);
   });
 
   socket.on('close', function () {
     //console.log('close', client, sockets.indexOf(socket));
-
     sockets.splice(sockets.indexOf(socket));
   });
 });

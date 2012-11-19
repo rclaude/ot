@@ -42,8 +42,9 @@
     paper.setup(canvas);
 
     // create the state
-    var path, handle, objects, history = [];
+    var path, handle, objects = [], history = [];
     var currentRevision = -1;
+    var historyPointer;
 
     /* UTILS */
 
@@ -60,7 +61,8 @@
       paper.view.draw();
     }
 
-    function rawToPath (raw, path) {
+    function rawToPath (raw) {
+      var path = new paper.Path();
       path.strokeColor = raw.color;
       path.strokeWidth = raw.width;
 
@@ -69,8 +71,58 @@
         path.segments[i].handleIn = new paper.Point(raw.curves[i].handleInx,raw.curves[i].handleIny);
         path.segments[i].handleOut = new paper.Point(raw.curves[i].handleOutx,raw.curves[i].handleOuty);
       }
+      return path;
     }
 
+    function pathToRaw (path) {
+      var curves = [];
+      for (var i = 0 ; i < path.segments.length ; i++) {
+        var seg = path.segments[i];
+        curves.push({
+          pointx: seg._point._x,
+          pointy: seg._point._y,
+          handleInx: seg._handleIn._x,
+          handleIny: seg._handleIn._y,
+          handleOutx: seg._handleOut._x,
+          handleOuty: seg._handleOut._y
+        });
+      }
+      return {
+        curves: curves,
+        color: path.color,
+        width: path.strokeWidth
+      };
+    }
+    // function building the client OT history
+    function emitOperation (event, data, lostData) {
+      channel.send(event, data);
+      if (event == 'finalyse' || event == 'move' || event == 'delete')
+        historyPointer = history.push( {event: event, data: data, lostData: lostData} ) - 1;
+    }
+
+    function undo () {
+      if (historyPointer >= 0) {
+        historyPointer--;
+        var operation = history[historyPointer];
+        switch (operation.event) {
+        case 'finalyse':
+          channel.send('delete', operation.handle);
+        case 'move':
+          var inverse = new paper.Point(-operation.data.x, -operation.data.y);
+          channel.send('move', { handle: operation.handle, move: inverse }); 
+        case 'delete':
+          channel.send('finalyse', { handle: operation.handle, obj: operation.lostData });
+        }
+      }
+    }
+
+    function redo () {
+      if (historyPointer < (history.length - 1)) {
+        var operation = history[historyPointer];
+        historyPointer++;
+        channel.send(operation(event,data));
+      }
+    }
 
     /* NETWORK */
 
@@ -122,10 +174,8 @@
 
     // when other objects are finalized
     channel.on('finalize', function(data) {
-      var path = new paper.Path();
-      rawToPath(data.obj, path);
       objects[data.handle].remove();
-      objects[data.handle] = path;
+      objects[data.handle] = rawToPath(data.obj);
       paper.view.draw();
     });
 
@@ -184,7 +234,7 @@
       var point = event.point;
       point.color = bar.color.value;
       point.width = bar.width.value;
-      channel.send('point', point);
+      emitOperation('point', point);
       path.add(point); 
       path.color = point.color; // duplicated information !
       path.strokeColor = point.color;
@@ -194,31 +244,14 @@
     // When the user drags the mouse, add points to current object and send them
     tools.pen.onMouseDrag = function (event) {
       path.add(event.point);
-      channel.send('point', event.point);
+      emitOperation('point', event.point);
     };
 
     // When the mouse is released, we compress the current object
     tools.pen.onMouseUp = function (event) {
       path.simplify(10);
       paper.view.draw();
-      var curves = [];
-      for (var i = 0 ; i < path.segments.length ; i++) {
-        var seg = path.segments[i];
-        curves.push({
-          pointx: seg._point._x,
-          pointy: seg._point._y,
-          handleInx: seg._handleIn._x,
-          handleIny: seg._handleIn._y,
-          handleOutx: seg._handleOut._x,
-          handleOuty: seg._handleOut._y
-        });
-      }
-      var obj = {
-        curves: curves,
-        color: path.color,
-        width: path.strokeWidth
-      };
-      channel.send('finalize',obj);
+      emitOperation('finalize', { handle: handle, obj: pathToRaw(path) });
     };
 
     // ERASER
@@ -238,8 +271,8 @@
       for(var i = currentRevision ; i >= 0 ; i--){
         if(objects[i] !== undefined){
           if(objects[i].hitTest(event.point,eraserHitOptions) != null){
+            emitOperation('delete', i, lostData);
             objects[i].remove();
-            channel.send('delete',i);
           }
         }
       }
@@ -282,7 +315,7 @@
         var move = new paper.Point(event.point.x - tools.hand.from.x, event.point.y - tools.hand.from.y) ;
         tools.hand.from = event.point;
         tools.hand.dragged.translate(move);
-        channel.send('move', { handle: handle, move: move });
+        emitOperation('move', { handle: handle, move: move });
         paper.view.draw();
       }
     };
