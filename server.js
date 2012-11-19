@@ -65,6 +65,18 @@ server.on('connection', function(socket) {
     handle = undefined;
   });
 
+  socket.on('move', function(data) {
+    //console.log('move', client, data)
+
+    if (!objects[data.handle].move) 
+      objects[data.handle].move = data.move;
+    else { 
+      objects[data.handle].move.x += data.move.x;
+      objects[data.handle].move.y += data.move.y;
+    }
+    broadcast(client, 'move', data);
+  });
+
   socket.on('delete', function(data) {
     //console.log('delete', client, data);
 

@@ -42,8 +42,10 @@
     paper.setup(canvas);
 
     // create the state
-    var path, handle, objects = [];
+    var path, handle, objects, history = [];
     var currentRevision = -1;
+
+    /* UTILS */
 
     function redraw (since, data) {
       // first we erase the object after since
@@ -68,6 +70,7 @@
         path.segments[i].handleOut = new paper.Point(raw.curves[i].handleOutx,raw.curves[i].handleOuty);
       }
     }
+
 
     /* NETWORK */
 
@@ -126,7 +129,13 @@
       paper.view.draw();
     });
 
-    channel.on('delete', function(handle){
+    // relative move of an object from it's current location
+    channel.on('move', function(data) {
+      objects[data.handle].translate(data.move);
+      paper.view.draw();
+    });
+
+    channel.on('delete', function(handle) {
       objects[handle].remove();
       paper.view.draw();
     });
@@ -240,10 +249,11 @@
     // HAND
 
     tools.hand = {
-      dragged: undefined
+      dragged: undefined, // object that is dragged
+      from: undefined // initial position of the object
     };
 
-    var eraserHitOptions = {
+    var handHitOptions = {
       segments: true,
       stroke: true,
       fill: true,
@@ -255,18 +265,31 @@
       path.add(event.point);
       var selected = currentRevision + 1;
       var hit = false; 
-      while (!hit && currentRevision >= 0) {
-        currentRevision--;
+      while (!hit && selected >= 0) {
+        selected--;
         if(objects[selected] !== undefined){
-          if(objects[selected].hitTest(event.point,eraserHitOptions) != null){
+          if(objects[selected].hitTest(event.point,handHitOptions) != null){
             hit = true;
-            tools.hand.dragged = selected;
+            tools.hand.dragged = objects[selected];
+            tools.hand.from = event.point;
           }
         }
       }
     };
-      
+
     tools.hand.onMouseDrag = function(event) {
+      if(tools.hand.dragged != undefined){
+        var move = new paper.Point(event.point.x - tools.hand.from.x, event.point.y - tools.hand.from.y) ;
+        tools.hand.from = event.point;
+        tools.hand.dragged.translate(move);
+        channel.send('move', { handle: handle, move: move });
+        paper.view.draw();
+      }
+    };
+
+    tools.hand.onMouseUp = function(event) {
+      selected = undefined;
+      from = undefined;
     };
   };
 
