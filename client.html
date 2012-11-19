@@ -2,103 +2,199 @@
 <meta charset="utf-8">
 <title> client </title>
 
-<!--
 <style>
-  html, body {
-    height: 100%;
-    width: 100%;
-    border: 0px;
+  body {
     margin: 0px;
-    padding: 0px;
+  }
+  form {
     position: absolute;
-    font-family: monospace;
+    right: 0px;
+    top: 0px;
+  }
+  form input {
+    display: block;
+    height: 20px;
+    width: 30px;
+    margin: 10px;
   }
 </style>
--->
 
-<nav>
-  <input id=color type=color>
-</nav>
+<form id=bar>
+  <input name=color type=color>
+  <input name=width type=number value=1 min=1 max=10>
+  <input name=tool  type=radio value=pen checked> draw
+  <input name=tool  type=radio value=eraser> erase
+  <input name=tool  type=radio value=hand> move
+</form>
 
 <canvas id=canvas resize></canvas>
 
 <script src=./lib/paper.js></script>
 <script src=./lib/webrtc.js></script>
 <script>
- 
+
   var channel = new WebRTC.DataChannel('ws://localhost:1234'),
-      color = document.getElementById('color'),
-      path = undefined,
-      handle = undefined,
-      objects = {};
+      bar = document.getElementById('bar');
 
   paper.install(window);
 
   window.onload = function () {
     paper.setup(canvas);
-    // create a simple drawing tool
-    var tool = new Tool();
 
-    channel.on('state', function(data) {
-      console.log('state', data); 
-    });
+    // create the state
+    var path, handle, objects = [];
+    var currentRevision = -1;
 
-    channel.on('point', function(data) {
-      console.log('point', data); 
-      if (objects[data.handle] === undefined) {
-        objects[data.handle] = new paper.Path();
-        objects[data.handle].strokeColor = data.point.color;
+    function redraw (since, data) {
+      // first we erase the object after since
+      currentRevision = since + data.length - 1;
+      console.log('currentRevision', currentRevision);
+      for ( var i = since; i <= currentRevision ; i++){
+        if( data[i] != null) {
+          objects[i] = new paper.Path();
+          rawToPath(data[i], objects[i]);
+        }
       }
-      objects[data.handle].add(data.point);
       paper.view.draw();
-    });
- 
-    channel.on('handle', function(data) {
-      handle = data;
-    });
- 
-    channel.on('finalize', function(data) {
-      
-      var path = new paper.Path();
-      path.strokeColor = objects[data.handle].strokeColor;
+    }
 
-      for (var i = 0 ; i < data.curves.length ; i++) {
-        
-        path.add(new paper.Point(data.curves[i].pointx, data.curves[i].pointy));
-        path.segments[i].handleIn = new paper.Point(data.curves[i].handleInx,data.curves[i].handleIny);
-        path.segments[i].handleOut = new paper.Point(data.curves[i].handleOutx,data.curves[i].handleOuty);
+    function rawToPath (raw, path) {
+      path.strokeColor = raw.color;
+      path.strokeWidth = raw.width;
 
+      for (var i = 0 ; i < raw.curves.length ; i++) {
+        path.add(new paper.Point(raw.curves[i].pointx, raw.curves[i].pointy));
+        path.segments[i].handleIn = new paper.Point(raw.curves[i].handleInx,raw.curves[i].handleIny);
+        path.segments[i].handleOut = new paper.Point(raw.curves[i].handleOutx,raw.curves[i].handleOuty);
       }
+    }
+
+    /* NETWORK */
+
+    // TODO make this the answer to "my handle is objects.length"
+    channel.on('state', function(data) {
+      console.log('state',data);
+      redraw(0, data);
+    });
+
+    // receive points from others
+    channel.on('point', function(data) {
+      console.log('point', handle);
+      // the handle is bigger than our current revision: 
+      // ==> we receive a new object!
+      if (currentRevision < data.handle) { 
+        /* 
+        while (currentRevision <= data.handle) {
+          objects.push(new paper.Path()); //FIXME 
+          currentRevision++;
+        }*/
+        objects[data.handle] = new paper.Path();
+        currentRevision = data.handle;
+        objects[data.handle].strokeColor = data.point.color;
+        objects[data.handle].strokeWidth = data.point.width;
+        console.log('creation', objects[data.handle]);
+      }
+
+      // the handle is smaller than our revision but we don't have the object:
+      // ==> we lose sync
+      if (objects[data.handle] == null) {
+        console.error('missed object', data.handle, ', ask for new state');
+      }
+      else{ // expected behavior: add the new point to the object
+        console.log('expected', objects[data.handle]);
+        objects[data.handle].add(data.point);
+        paper.view.draw();
+      }
+    });
+
+    // the server gives us the handle to our current object
+    channel.on('handle', function(data) {
+      console.log('handle', data);
+      handle = data;
+      if (handle !== currentRevision + 1)
+        console.error('our handle was late and we are doomed, ask for new state');
+      objects[handle] = path;
+      currentRevision++;
+    });
+
+    // when other objects are finalized
+    channel.on('finalize', function(data) {
+      var path = new paper.Path();
+      rawToPath(data.obj, path);
       objects[data.handle].remove();
       objects[data.handle] = path;
       paper.view.draw();
     });
-    
+
+    channel.on('delete', function(handle){
+      objects[handle].remove();
+      paper.view.draw();
+    });
+
+    channel.on('close', function(){
+      // TODO
+      //channel = new WebRTC.DataChannel('ws://localhost:1234');
+    });
+    /* TOOLS */
+
+    // create the tools
+    var tool = new Tool(),
+        tools = {};
+
     tool.onMouseDown = function (event) {
-    	// Create a new path and set its stroke color to black:
-    	path = new paper.Path();
-      var point = event.point;
-      point.color = color.value;
-      channel.send('point', point);
-    	path.add(point);
-    	path.strokeColor = point.color;
+      var id = document.querySelector('input[name=tool]:checked').value;
+      if (tools[id].onMouseDown !== undefined) {
+        console.log('calling',id,'onMouseDown');
+        tools[id].onMouseDown(event);
+      }
     };
-    
-    // While the user drags the mouse, points are added to the path
-    // at the position of the mouse:
+
     tool.onMouseDrag = function (event) {
-    	path.add(event.point);
+      var id = document.querySelector('input[name=tool]:checked').value;
+      if (tools[id].onMouseDrag !== undefined) {
+        console.log('calling',id,'onMouseDrag');
+        tools[id].onMouseDrag(event);
+      }
+    };
+
+    tool.onMouseUp = function (event) {
+      var id = document.querySelector('input[name=tool]:checked').value;
+      if (tools[id].onMouseUp !== undefined) {
+        console.log('calling',id,'onMouseUp');
+        tools[id].onMouseUp(event);
+      }
+    };
+
+    // PEN
+
+    tools.pen = {};
+
+    // A click begins the drawing of a new object
+    tools.pen.onMouseDown = function (event) {
+      path = new paper.Path();
+      var point = event.point;
+      point.color = bar.color.value;
+      point.width = bar.width.value;
+      channel.send('point', point);
+      path.add(point); 
+      path.color = point.color; // duplicated information !
+      path.strokeColor = point.color;
+      path.strokeWidth = point.width;
+    };
+
+    // When the user drags the mouse, add points to current object and send them
+    tools.pen.onMouseDrag = function (event) {
+      path.add(event.point);
       channel.send('point', event.point);
     };
-    
-    // When the mouse is released, we simplify the path:
-    tool.onMouseUp = function (event) {
-      path.simplify(10);
 
+    // When the mouse is released, we compress the current object
+    tools.pen.onMouseUp = function (event) {
+      path.simplify(10);
+      paper.view.draw();
       var curves = [];
       for (var i = 0 ; i < path.segments.length ; i++) {
         var seg = path.segments[i];
-        console.log('segment : ' + seg);
         curves.push({
           pointx: seg._point._x,
           pointy: seg._point._y,
@@ -107,9 +203,71 @@
           handleOutx: seg._handleOut._x,
           handleOuty: seg._handleOut._y
         });
-      } 
+      }
+      var obj = {
+        curves: curves,
+        color: path.color,
+        width: path.strokeWidth
+      };
+      channel.send('finalize',obj);
+    };
+
+    // ERASER
+    
+    tools.eraser = {};
+
+    var eraserHitOptions = {
+      segments: true,
+      stroke: true,
+      fill: true,
+      tolerance: 6
+    };
+
+    tools.eraser.onMouseDown = tools.eraser.onMouseDrag = function(event) {
+      path = new paper.Path();
+      path.add(event.point);
+      for(var i = currentRevision ; i >= 0 ; i--){
+        if(objects[i] !== undefined){
+          if(objects[i].hitTest(event.point,eraserHitOptions) != null){
+            objects[i].remove();
+            channel.send('delete',i);
+          }
+        }
+      }
       paper.view.draw();
-      channel.send('finalize',curves);
+    };
+
+    // HAND
+
+    tools.hand = {
+      dragged: undefined
+    };
+
+    var eraserHitOptions = {
+      segments: true,
+      stroke: true,
+      fill: true,
+      tolerance: 6
+    };
+
+    tools.hand.onMouseDown = function(event) {
+      path = new paper.Path();
+      path.add(event.point);
+      var selected = currentRevision + 1;
+      var hit = false; 
+      while (!hit && currentRevision >= 0) {
+        currentRevision--;
+        if(objects[selected] !== undefined){
+          if(objects[selected].hitTest(event.point,eraserHitOptions) != null){
+            hit = true;
+            tools.hand.dragged = selected;
+          }
+        }
+      }
+    };
+      
+    tools.hand.onMouseDrag = function(event) {
     };
   };
+
 </script>

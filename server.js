@@ -7,8 +7,18 @@ var objects = [];
 
 function send(socket, event, data) {
   if (socket) {
-    socket.send(JSON.stringify({ event: event, data: data }));
+    try{
+      socket.send(JSON.stringify({ event: event, data: data }));
+    }catch(e){
+      console.log('WARNING : a disconnected client is still in the socket list');
+    }
   }
+}
+
+function broadcast (from, type, data){
+  for (var i in sockets) 
+    if (i != from) 
+      send(sockets[i], type, data)
 }
 
 server.on('connection', function(socket) {
@@ -20,9 +30,14 @@ server.on('connection', function(socket) {
 
   sockets.push(socket);
 
+  send(socket, 'state', objects); // a key frame
+
+  /*
   socket.on('open', function () {
+    console.log('open -> give state');
     send(socket, 'state', objects); // a key frame
   });
+  */
 
   socket.on('message', function (data) {
     var message = JSON.parse(data);
@@ -30,46 +45,35 @@ server.on('connection', function(socket) {
   });
   
   socket.on('point', function (data) {
-    console.log('point', client, data, 'object', handle, 'in', objects.length);
+    //console.log('point', client, data, 'object', handle, 'in', objects.length);
     
     if (handle === undefined) {
       handle = objects.length;
-      objects.push([]);
+      objects[handle] = [];
       send(socket, 'handle', handle);
     }
     
     objects[handle].push(data);
-
-    for (var i in sockets) {
-      if (i != client) {
-        send(sockets[i], 'point', {
-          handle: handle,
-          point: data
-        });
-      }
-    }
+    broadcast(client, 'point', { handle: handle, point: data });
   });
 
   socket.on('finalize', function (data) {
-    console.log('finalize', client, data);
+    //console.log('finalize', client, data);
     
     objects[handle] = data;
-    
-    for (var i in sockets) {
-      if (i != client) {
-        send(sockets[i], 'finalize', {
-          handle: handle,
-          curves: data
-        });
-      }
-    }
-
+    broadcast(client, 'finalize', { handle: handle, obj: data });
     handle = undefined;
   });
 
-  socket.on('close', function () {
-    console.log('close', client);
+  socket.on('delete', function(data) {
+    //console.log('delete', client, data);
 
-    sockets = sockets.splice(sockets.indexOf(socket));
+    broadcast(client, 'delete', data);
+  });
+
+  socket.on('close', function () {
+    //console.log('close', client, sockets.indexOf(socket));
+
+    sockets.splice(sockets.indexOf(socket));
   });
 });
