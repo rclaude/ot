@@ -25,7 +25,7 @@ var server = new ws.Server({ port: +process.argv[2] || 1234 }),
 
 server.on('connection', function(socket) {
 
-  var client = sockets.push(socket), handle = undefined;
+  var client = sockets.push(socket) - 1, handle = undefined;
   send(socket, 'state', objects); // first key frame
 
   console.log('new client', client);
@@ -38,7 +38,7 @@ server.on('connection', function(socket) {
   socket.on('point', function (data) {
     //console.log('point', client, data, 'object', handle, 'in', objects.length);
     if (handle === undefined) {
-      handle = objects.push([]);
+      handle = objects.push([]) - 1;
       send(socket, 'handle', handle);
     }
     objects[handle].push(data);
