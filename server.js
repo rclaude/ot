@@ -1,31 +1,34 @@
 var ws = require('ws'),
+    fs = require('fs'),
     http = require('http'),
     util = require('util'),
     formidable = require('formidable');
 
-var server = new ws.Server({ port: +process.argv[2] || 1234 }),
-    sockets = [], objects = [];
+/* UTILS */
 
 function send(socket, event, data) {
   if (socket) {
-    try {
-      socket.send(JSON.stringify({ event: event, data: data }));
-    } catch(e) {
-      console.log('WARNING : a disconnected client is still in the socket list');
-    }
+    try { socket.send(JSON.stringify({ event: event, data: data })); }
+    catch(e) { console.error('WARNING : a disconnected client is still in the socket list'); }
   }
 }
 
-function broadcast (from, type, data) {
-  for (var i in sockets) if (i != from) send(sockets[i], type, data);
+function broadcast (from, event, data) {
+  for (var i = 0 ; i < sockets.length ; i++) if (i != from) send(sockets[i], event, data);
 }
 
+
+/* COLLABORATION SERVER */
+
+var server = new ws.Server({ port: +process.argv[2] || 1234 }),
+    sockets = [], objects = [];
+
 server.on('connection', function(socket) {
-  console.log('connected');
-  var client = sockets.length,
-      handle = undefined;
-  sockets.push(socket);
-  send(socket, 'state', objects); // a key frame
+
+  var client = sockets.push(socket) - 1, handle = undefined;
+  send(socket, 'state', objects); // first key frame
+
+  console.log('client', client, 'join');
 
   socket.on('message', function (data) {
     var message = JSON.parse(data);
@@ -35,8 +38,7 @@ server.on('connection', function(socket) {
   socket.on('point', function (data) {
     //console.log('point', client, data, 'object', handle, 'in', objects.length);
     if (handle === undefined) {
-      handle = objects.length;
-      objects[handle] = [];
+      handle = objects.push([]) - 1;
       send(socket, 'handle', handle);
     }
     objects[handle].push(data);
@@ -47,15 +49,14 @@ server.on('connection', function(socket) {
     //console.log('finalize', client, data);
     objects[data.handle] = data.obj;
     broadcast(client, 'finalize', data);
-    if(handle === data.handle)
-      handle = undefined;
+    if(handle === data.handle) handle = undefined;
   });
 
   socket.on('move', function(data) {
     //console.log('move', client, data)
-    if (!objects[data.handle].move) 
+    if (!objects[data.handle].move) {
       objects[data.handle].move = data.move;
-    else { 
+    } else {
       objects[data.handle].move.x += data.move.x;
       objects[data.handle].move.y += data.move.y;
     }
@@ -69,23 +70,33 @@ server.on('connection', function(socket) {
   });
 
   socket.on('close', function () {
-    //console.log('close', client, sockets.indexOf(socket));
-    sockets.splice(sockets.indexOf(socket));
+    console.log('client', client, 'left');
+    sockets.splice(client);
   });
 });
 
 
-/* Uploader */
+/* UPLOADER */
+
+var uploads = [];
 
 http.createServer(function(req, res) {
   if (req.url == '/upload' && req.method.toLowerCase() == 'post') {
     // parse a file upload
     var form = new formidable.IncomingForm();
     form.parse(req, function(err, fields, files) {
-      console.log(files.upload.path);
+      var id = uploads.push(files.upload.path) - 1;
+      var handle = objects.push({type: 'Raster', id: id}) - 1;
+      broadcast(null, 'raster', objects[handle]);
       res.end('yes');
     });
     return;
+  } else if (req.url.slice(0,5) == '/img/') {
+    var id = parseInt(req.url.slice(5),10);
+    if (uploads[id]) {
+      fs.createReadStream(uploads[id]).pipe(res);
+      return;
+    }
   }
   res.end('no');
 }).listen(8080);
