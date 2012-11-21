@@ -28,7 +28,7 @@ server.on('connection', function(socket) {
   var client = sockets.push(socket) - 1, handle = undefined;
   send(socket, 'state', objects); // first key frame
 
-  console.log('new client', client);
+  console.log('client', client, 'join');
 
   socket.on('message', function (data) {
     var message = JSON.parse(data);
@@ -70,7 +70,7 @@ server.on('connection', function(socket) {
   });
 
   socket.on('close', function () {
-    //console.log('close', client, sockets.indexOf(socket));
+    console.log('client', client, 'left');
     sockets.splice(client);
   });
 });
@@ -85,7 +85,9 @@ http.createServer(function(req, res) {
     // parse a file upload
     var form = new formidable.IncomingForm();
     form.parse(req, function(err, fields, files) {
-      uploads.push(files.upload.path);
+      var id = uploads.push(files.upload.path) - 1;
+      var handle = objects.push({type: 'Raster', id: id}) - 1;
+      broadcast(null, 'raster', objects[handle]);
       res.end('yes');
     });
     return;

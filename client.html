@@ -166,12 +166,25 @@
       // ==> we lose sync
       if (objects[data.handle] == null) {
         console.error('missed object', data.handle, ', ask for new state');
-      }
-      else{ // expected behavior: add the new point to the object
+      } else { // expected behavior: add the new point to the object
         console.log('expected', objects[data.handle]);
         objects[data.handle].add(data.point);
         paper.view.draw();
       }
+    });
+
+    // receive raster images
+    channel.on('raster', function(data) {
+      console.log('raster', data);
+      var img = document.createElement('img');
+      img.id = 'img' + data.id;
+      img.src = 'http://localhost:8080/img/' + data.id;
+      img.style.display = 'none';
+      img.onload = function() {
+        var raster = new paper.Raster(img.id);
+        paper.view.draw();
+      };
+      document.body.appendChild(img);
     });
 
     // the server gives us the handle to our current object
@@ -206,8 +219,8 @@
       paper.view.draw();
     });
 
-    channel.on('close', function(){
-      // TODO
+    channel.on('close', function() {
+      // TODO try to reconnect
       //channel = new WebRTC.DataChannel('ws://localhost:1234');
     });
 
