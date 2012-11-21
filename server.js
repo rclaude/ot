@@ -64,6 +64,7 @@ server.on('connection', function(socket) {
 
   socket.on('delete', function(data) {
     //console.log('delete', client, data);
+    objects[data] = null;
     broadcast(client, 'delete', data);
   });
 

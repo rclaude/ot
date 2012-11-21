@@ -51,7 +51,7 @@
     // create the state
     var path, handle, objects = [], history = [];
     var currentRevision = -1;
-    var historyPointer;
+    var historyPointer= -1;
 
     /* UTILS */
 
@@ -59,11 +59,9 @@
       // first we erase the object after since
       currentRevision = since + data.length - 1;
       console.log('currentRevision', currentRevision);
-      for ( var i = since; i <= currentRevision ; i++){
-        if( data[i] != null) {
-          objects[i] = new paper.Path();
-          rawToPath(data[i], objects[i]);
-        }
+      for (var i = since; i <= currentRevision ; i++) {
+        if (data[i] != null)
+          objects[i] = rawToPath(data[i]);
       }
       paper.view.draw();
     }
@@ -103,31 +101,42 @@
     // function building the client OT history
     function emitOperation (event, data, lostData) {
       channel.send(event, data);
-      if (event == 'finalyse' || event == 'move' || event == 'delete')
+      if (event == 'finalize' || event == 'move' || event == 'delete'){
         historyPointer = history.push( {event: event, data: data, lostData: lostData} ) - 1;
+        console.log('historyPointer', historyPointer);
+      }
     }
 
     function undo () {
       if (historyPointer >= 0) {
-        historyPointer--;
         var operation = history[historyPointer];
+        //console.log('undo', operation);
+        historyPointer--;
         switch (operation.event) {
-        case 'finalyse':
-          channel.send('delete', operation.handle);
+        case 'finalize':
+          channel.send('delete', operation.data.handle);
+          channel.handlers['delete'] (operation.data.handle);
+          break;
         case 'move':
-          var inverse = new paper.Point(-operation.data.x, -operation.data.y);
-          channel.send('move', { handle: operation.handle, move: inverse }); 
+          var inverse = new paper.Point(0 - operation.data.move.x, 0 - operation.data.move.y);
+          channel.send('move', { handle: operation.data.handle, move: inverse });
+          channel.handlers['move'] ({ handle: operation.data.handle, move: inverse });
+          break;
         case 'delete':
-          channel.send('finalyse', { handle: operation.handle, obj: operation.lostData });
+          channel.send('finalize', {handle: operation.data, obj: operation.lostData});
+          channel.handlers['finalize'] ({handle: operation.data, obj: operation.lostData});
+          break;
         }
       }
     }
 
     function redo () {
       if (historyPointer < (history.length - 1)) {
-        var operation = history[historyPointer];
         historyPointer++;
-        channel.send(operation(event,data));
+        var operation = history[historyPointer];
+        //console.log('historyPointer', operation);
+        channel.send(operation.event,operation.data);
+        channel.handlers[operation.event] (operation.data);
       }
     }
 
@@ -145,13 +154,9 @@
       // the handle is bigger than our current revision: 
       // ==> we receive a new object!
       if (currentRevision < data.handle) { 
-        /* 
-        while (currentRevision <= data.handle) {
-          objects.push(new paper.Path()); //FIXME 
-          currentRevision++;
-        }*/
         objects[data.handle] = new paper.Path();
         currentRevision = data.handle;
+        objects[data.handle].color = data.point.color; // don't remove this
         objects[data.handle].strokeColor = data.point.color;
         objects[data.handle].strokeWidth = data.point.width;
         console.log('creation', objects[data.handle]);
@@ -181,18 +186,22 @@
 
     // when other objects are finalized
     channel.on('finalize', function(data) {
-      objects[data.handle].remove();
+      console.log('finalize', data);
+      if(objects[data.handle])
+        objects[data.handle].remove();
       objects[data.handle] = rawToPath(data.obj);
       paper.view.draw();
     });
 
     // relative move of an object from it's current location
     channel.on('move', function(data) {
+      console.log('move', data);
       objects[data.handle].translate(data.move);
       paper.view.draw();
     });
 
     channel.on('delete', function(handle) {
+      console.log('delete', handle);
       objects[handle].remove();
       paper.view.draw();
     });
@@ -201,6 +210,7 @@
       // TODO
       //channel = new WebRTC.DataChannel('ws://localhost:1234');
     });
+
     /* TOOLS */
 
     // create the tools
@@ -273,12 +283,10 @@
     };
 
     tools.eraser.onMouseDown = tools.eraser.onMouseDrag = function(event) {
-      path = new paper.Path();
-      path.add(event.point);
       for(var i = currentRevision ; i >= 0 ; i--){
         if(objects[i] !== undefined){
           if(objects[i].hitTest(event.point,eraserHitOptions) != null){
-            emitOperation('delete', i, lostData);
+            emitOperation('delete', i, pathToRaw(objects[i]));
             objects[i].remove();
           }
         }
@@ -289,7 +297,8 @@
     // HAND
 
     tools.hand = {
-      dragged: undefined, // object that is dragged
+      handle: undefined, // handle of the dragged object
+      dragged: undefined, // dragged object itself
       from: undefined // initial position of the object
     };
 
@@ -310,6 +319,7 @@
         if(objects[selected] !== undefined){
           if(objects[selected].hitTest(event.point,handHitOptions) != null){
             hit = true;
+            tools.hand.handle = selected;
             tools.hand.dragged = objects[selected];
             tools.hand.from = event.point;
           }
@@ -322,7 +332,7 @@
         var move = new paper.Point(event.point.x - tools.hand.from.x, event.point.y - tools.hand.from.y) ;
         tools.hand.from = event.point;
         tools.hand.dragged.translate(move);
-        emitOperation('move', { handle: handle, move: move });
+        emitOperation('move', { handle: tools.hand.handle, move: move });
         paper.view.draw();
       }
     };
@@ -331,6 +341,18 @@
       selected = undefined;
       from = undefined;
     };
+
+    // HISTORY
+  
+    addEventListener('keydown', function(event) {
+      if (event.ctrlKey)
+        if (event.keyCode == 90){ // ctrl+z
+          console.log('keydown', event);
+          undo();
+        }
+        else if (event.keyCode == 89) // ctrl+v
+          redo();
+    });
   };
 
 </script>
