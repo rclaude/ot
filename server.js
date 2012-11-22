@@ -45,10 +45,10 @@ server.on('connection', function(socket) {
     broadcast(client, 'point', { handle: handle, point: data });
   });
 
-  socket.on('finalize', function (data) {
-    //console.log('finalize', client, data);
+  socket.on('path', function (data) {
+    //console.log('path', client, data);
     objects[data.handle] = data.obj;
-    broadcast(client, 'finalize', data);
+    broadcast(client, 'path', data);
     if(handle === data.handle) handle = undefined;
   });
 

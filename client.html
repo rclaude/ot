@@ -28,8 +28,9 @@
   <input name=tool   type=radio  value=pen checked> draw
   <input name=tool   type=radio  value=eraser> erase
   <input name=tool   type=radio  value=hand> move
- <input name=upload  type=file>
+  <input name=upload type=file>
   <input type=submit value=submit>
+  <input type=button value=download onclick=snapshot()></form> 
 </form>
 
 <canvas id=canvas resize></canvas>
@@ -48,7 +49,7 @@
   window.onload = function () {
     paper.setup(canvas);
 
-    // create the state
+    // create the initial state
     var path, handle, objects = [], history = [];
     var currentRevision = -1;
     var historyPointer= -1;
@@ -56,7 +57,7 @@
     /* UTILS */
 
     function redraw (since, data) {
-      // first we erase the object after since
+      // first we erase all the objects after since
       currentRevision = since + data.length - 1;
       console.log('currentRevision', currentRevision);
       for (var i = since; i <= currentRevision ; i++) {
@@ -98,49 +99,17 @@
         width: path.strokeWidth
       };
     }
-    // function building the client OT history
+
+    /* NETWORK */
+
+    // function building the client operations history
     function emitOperation (event, data, lostData) {
       channel.send(event, data);
-      if (event == 'finalize' || event == 'move' || event == 'delete'){
+      if (event == 'path' || event == 'delete') {
         historyPointer = history.push( {event: event, data: data, lostData: lostData} ) - 1;
         console.log('historyPointer', historyPointer);
       }
     }
-
-    function undo () {
-      if (historyPointer >= 0) {
-        var operation = history[historyPointer];
-        //console.log('undo', operation);
-        historyPointer--;
-        switch (operation.event) {
-        case 'finalize':
-          channel.send('delete', operation.data.handle);
-          channel.handlers['delete'] (operation.data.handle);
-          break;
-        case 'move':
-          var inverse = new paper.Point(0 - operation.data.move.x, 0 - operation.data.move.y);
-          channel.send('move', { handle: operation.data.handle, move: inverse });
-          channel.handlers['move'] ({ handle: operation.data.handle, move: inverse });
-          break;
-        case 'delete':
-          channel.send('finalize', {handle: operation.data, obj: operation.lostData});
-          channel.handlers['finalize'] ({handle: operation.data, obj: operation.lostData});
-          break;
-        }
-      }
-    }
-
-    function redo () {
-      if (historyPointer < (history.length - 1)) {
-        historyPointer++;
-        var operation = history[historyPointer];
-        //console.log('historyPointer', operation);
-        channel.send(operation.event,operation.data);
-        channel.handlers[operation.event] (operation.data);
-      }
-    }
-
-    /* NETWORK */
 
     // TODO make this the answer to "my handle is objects.length"
     channel.on('state', function(data) {
@@ -197,9 +166,9 @@
       currentRevision++;
     });
 
-    // when other objects are finalized
-    channel.on('finalize', function(data) {
-      console.log('finalize', data);
+    // when other objects are finalized path
+    channel.on('path', function(data) {
+      console.log('path', data);
       if(objects[data.handle])
         objects[data.handle].remove();
       objects[data.handle] = rawToPath(data.obj);
@@ -281,7 +250,7 @@
     tools.pen.onMouseUp = function (event) {
       path.simplify(10);
       paper.view.draw();
-      emitOperation('finalize', { handle: handle, obj: pathToRaw(path) });
+      emitOperation('path', { handle: handle, obj: pathToRaw(path) });
     };
 
     // ERASER
@@ -312,7 +281,8 @@
     tools.hand = {
       handle: undefined, // handle of the dragged object
       dragged: undefined, // dragged object itself
-      from: undefined // initial position of the object
+      from: undefined, // initial position of the object
+      stand: undefined // last known position of the object
     };
 
     var handHitOptions = {
@@ -323,10 +293,8 @@
     };
 
     tools.hand.onMouseDown = function(event) {
-      path = new paper.Path();
-      path.add(event.point);
-      var selected = currentRevision + 1;
       var hit = false; 
+      var selected = currentRevision + 1;
       while (!hit && selected >= 0) {
         selected--;
         if(objects[selected] !== undefined){
@@ -335,6 +303,7 @@
             tools.hand.handle = selected;
             tools.hand.dragged = objects[selected];
             tools.hand.from = event.point;
+            tools.hand.stand = event.point;
           }
         }
       }
@@ -342,8 +311,8 @@
 
     tools.hand.onMouseDrag = function(event) {
       if(tools.hand.dragged != undefined){
-        var move = new paper.Point(event.point.x - tools.hand.from.x, event.point.y - tools.hand.from.y) ;
-        tools.hand.from = event.point;
+        var move = new paper.Point(event.point.x - tools.hand.stand.x, event.point.y - tools.hand.stand.y) ;
+        tools.hand.stand = event.point;
         tools.hand.dragged.translate(move);
         emitOperation('move', { handle: tools.hand.handle, move: move });
         paper.view.draw();
@@ -351,8 +320,12 @@
     };
 
     tools.hand.onMouseUp = function(event) {
-      selected = undefined;
-      from = undefined;
+      var move = new paper.Point(event.point.x - tools.hand.from.x, event.point.y - tools.hand.from.y) ;
+      historyPointer = history.push({ event: 'move', data: { handle: tools.hand.handle, move: move } }) - 1;
+      console.log('historyPointer', historyPointer);
+      tools.hand.selected = undefined;
+      tools.hand.from = undefined;
+      tools.hand.stand = undefined;
     };
 
     // HISTORY
@@ -366,6 +339,43 @@
         else if (event.keyCode == 89) // ctrl+v
           redo();
     });
+
+    function undo () {
+      if (historyPointer >= 0) {
+        var operation = history[historyPointer];
+        console.log('undo', operation);
+        historyPointer--;
+        switch (operation.event) {
+        case 'path':
+          channel.send('delete', operation.data.handle);
+          channel.handlers['delete'] (operation.data.handle);
+          break;
+        case 'move':
+          var inverse = new paper.Point(0 - operation.data.move.x, 0 - operation.data.move.y);
+          channel.send('move', { handle: operation.data.handle, move: inverse });
+          channel.handlers['move'] ({ handle: operation.data.handle, move: inverse });
+          break;
+        case 'delete':
+          channel.send('path', {handle: operation.data, obj: operation.lostData});
+          channel.handlers['path'] ({handle: operation.data, obj: operation.lostData});
+          break;
+        }
+      }
+    }
+
+    function redo () {
+      if (historyPointer < (history.length - 1)) {
+        historyPointer++;
+        var operation = history[historyPointer];
+        //console.log('historyPointer', operation);
+        channel.send(operation.event,operation.data);
+        channel.handlers[operation.event] (operation.data);
+      }
+    }
   };
+
+  function snapshot () {
+    window.open(canvas.toDataURL("image/png"));
+  }
 
 </script>
