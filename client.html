@@ -50,7 +50,7 @@
     paper.setup(canvas);
 
     // create the initial state
-    var path, handle, objects = [], history = [];
+    var path, handle, objects = {}, history = [];
     var currentRevision = -1;
     var historyPointer= -1;
 
@@ -58,12 +58,21 @@
 
     function redraw (since, data) {
       // first we erase all the objects after since
-      currentRevision = since + data.length - 1;
-      console.log('currentRevision', currentRevision);
-      for (var i = since; i <= currentRevision ; i++) {
+      var until = since + data.length;
+      console.log('currentRevision', until-1);
+      for (var i = since; i < until ; i++) {
         if (data[i] != null)
-          objects[i] = rawToPath(data[i]);
+          switch(data[i].type){
+          case 'raster':
+            var raster = data[i];
+            raster.handle = i;
+            channel.handlers['raster'] (raster);
+            break;
+          default:
+            objects[i] = rawToPath(data[i]);
+          }
       }
+      currentRevision = until - 1;
       paper.view.draw();
     }
 
@@ -100,6 +109,13 @@
       };
     }
 
+    function rasterToRaw (raster) {
+      var raw = {};
+      raw.id = raster._image.id.slice(3);
+      //raw.position = { raster._position.x, raster._position.y };
+      return raw;
+    }
+
     /* NETWORK */
 
     // function building the client operations history
@@ -115,6 +131,7 @@
     channel.on('state', function(data) {
       console.log('state',data);
       redraw(0, data);
+      console.log('objects',objects);
     });
 
     // receive points from others
@@ -151,8 +168,17 @@
       img.style.display = 'none';
       img.onload = function() {
         var raster = new paper.Raster(img.id);
+        raster.type = 'raster';
+        if (data.position != null) {
+          raster.position = new paper.Point(data.position);
+        } else {
+          raster.position = new paper.Point(canvas.width/2, canvas.height/2);
+        }
+        objects[data.handle] = raster;
+        console.log(raster);
         paper.view.draw();
       };
+      currentRevision = data.handle;
       document.body.appendChild(img);
     });
 
@@ -258,7 +284,6 @@
     tools.eraser = {};
 
     var eraserHitOptions = {
-      segments: true,
       stroke: true,
       fill: true,
       tolerance: 6
@@ -268,7 +293,13 @@
       for(var i = currentRevision ; i >= 0 ; i--){
         if(objects[i] !== undefined){
           if(objects[i].hitTest(event.point,eraserHitOptions) != null){
-            emitOperation('delete', i, pathToRaw(objects[i]));
+            switch(objects[i].type){
+            case 'raster':
+              emitOperation('delete', i, rasterToRaw(objects[i]));
+              break;
+            default:
+              emitOperation('delete', i, pathToRaw(objects[i]));
+            }
             objects[i].remove();
           }
         }
@@ -286,7 +317,6 @@
     };
 
     var handHitOptions = {
-      segments: true,
       stroke: true,
       fill: true,
       tolerance: 6
@@ -295,7 +325,7 @@
     tools.hand.onMouseDown = function(event) {
       var hit = false; 
       var selected = currentRevision + 1;
-      while (!hit && selected >= 0) {
+      while (!hit && selected > 0) {
         selected--;
         if(objects[selected] !== undefined){
           if(objects[selected].hitTest(event.point,handHitOptions) != null){
@@ -310,7 +340,7 @@
     };
 
     tools.hand.onMouseDrag = function(event) {
-      if(tools.hand.dragged != undefined){
+      if (tools.hand.dragged != undefined) {
         var move = new paper.Point(event.point.x - tools.hand.stand.x, event.point.y - tools.hand.stand.y) ;
         tools.hand.stand = event.point;
         tools.hand.dragged.translate(move);
@@ -320,12 +350,15 @@
     };
 
     tools.hand.onMouseUp = function(event) {
-      var move = new paper.Point(event.point.x - tools.hand.from.x, event.point.y - tools.hand.from.y) ;
-      historyPointer = history.push({ event: 'move', data: { handle: tools.hand.handle, move: move } }) - 1;
-      console.log('historyPointer', historyPointer);
-      tools.hand.selected = undefined;
-      tools.hand.from = undefined;
-      tools.hand.stand = undefined;
+      if (tools.hand.dragged != undefined) {
+        var move = new paper.Point(event.point.x - tools.hand.from.x, event.point.y - tools.hand.from.y) ;
+        historyPointer = history.push({ event: 'move', data: { handle: tools.hand.handle, move: move } }) - 1;
+        console.log('historyPointer', historyPointer);
+        tools.hand.selected = undefined;
+        tools.hand.dragged = undefined;
+        tools.hand.from = undefined;
+        tools.hand.stand = undefined;
+      }
     };
 
     // HISTORY

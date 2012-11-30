@@ -86,8 +86,8 @@ http.createServer(function(req, res) {
     var form = new formidable.IncomingForm();
     form.parse(req, function(err, fields, files) {
       var id = uploads.push(files.upload.path) - 1;
-      var handle = objects.push({type: 'Raster', id: id}) - 1;
-      broadcast(null, 'raster', objects[handle]);
+      var handle = objects.push({type: 'raster', handle: handle, id: id}) - 1;
+      broadcast(null, 'raster', { handle: handle, id: id });
       res.end('yes');
     });
     return;
