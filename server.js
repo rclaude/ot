@@ -54,13 +54,20 @@ server.on('connection', function(socket) {
 
   socket.on('move', function(data) {
     //console.log('move', client, data)
-    if (!objects[data.handle].move) {
-      objects[data.handle].move = data.move;
-    } else {
-      objects[data.handle].move.x += data.move.x;
-      objects[data.handle].move.y += data.move.y;
+    switch (data.type) {
+    case 'raster':
+        objects[data.handle].position.x += data.move.x;
+        objects[data.handle].position.y += data.move.y;
+    default:
+      if (!objects[data.handle].move) {
+        objects[data.handle].move = data.move;
+      } else {
+        objects[data.handle].move.x += data.move.x;
+        objects[data.handle].move.y += data.move.y;
+      }
     }
     broadcast(client, 'move', data);
+   
   });
 
   socket.on('delete', function(data) {

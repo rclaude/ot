@@ -86,6 +86,9 @@
         path.segments[i].handleIn = new paper.Point(raw.curves[i].handleInx,raw.curves[i].handleIny);
         path.segments[i].handleOut = new paper.Point(raw.curves[i].handleOutx,raw.curves[i].handleOuty);
       }
+      if (raw.move) {
+        path.translate(raw.move);
+      }
       return path;
     }
 
