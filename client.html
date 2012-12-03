@@ -49,15 +49,19 @@
   window.onload = function () {
     paper.setup(canvas);
 
-    // create the initial state
-    var handle, objects = {}, buffer = [], history = [];
-    var currentRevision = -1;
+    var objects = {};         // SHARED synchronized objects map
+    var currentRevision = -1; // Biggest key in objects
+    var handle;       // LOCAL handle provide by the server for an under-construction object
+    var buffer = [];  // LOCAL FIFO of objects waiting to be send to the server
+    var history = []; // LOCAL Personal history for undo-redo
     var historyPointer= -1;
 
     /* UTILS */
 
     function redraw (since, data) {
       // first we erase all the objects after since
+      for (var i = since; i < objects.length ; i++)
+        if (objects[i]) objects[i].remove();
       var until = since + data.length;
       //console.log('currentRevision', until-1);
       for (var i = since; i < until ; i++) {
@@ -79,6 +83,7 @@
     function rawToPath (raw) {
       var path = new paper.Path();
       //console.log('raw',raw);
+      path.color = raw.color;
       path.strokeColor = raw.color;
       path.strokeWidth = raw.width;
       for (var i = 0 ; i < raw.segments.length ; i++) {
@@ -123,20 +128,21 @@
     /* NETWORK */
 
     // function building the client operations history
-    function emitOperation (event, data, lostData, skipHistory) {
+    function emitOperation (event, data) {
       if (buffer.length < 2) { // sync
         if (event == 'path') {
           buffer.shift();
           handle = undefined;
         }
         channel.send(event, data);
-        //console.log(event, data);
-      }
-      if (!skipHistory && (event == 'path' || event == 'delete')) { // history
-        historyPointer = history.push( {event: event, data: data, lostData: lostData} ) - 1;
-        console.log('historyPointer', historyPointer);
       }
     }
+
+    function addToHistory (event, data, lostData) {
+      historyPointer = history.push( {event: event, data: data, lostData: lostData} ) - 1;
+      console.log('historyPointer', historyPointer);
+    }
+    
 
     // TODO make this the answer to "my handle is objects.length"
     channel.on('state', function(data) {
@@ -296,7 +302,9 @@
       //if (path._segments.length > 1) 
       path.simplify(10);
       paper.view.draw();
-      emitOperation('path', { handle: handle, obj: pathToRaw(path) });
+      var data =  { handle: handle, obj: pathToRaw(path) };
+      emitOperation('path', data);
+      addToHistory('path', data);
     };
 
     // ERASER
@@ -313,12 +321,13 @@
       for(var i = currentRevision ; i >= 0 ; i--){
         if(objects[i] !== undefined){
           if(objects[i].hitTest(event.point,eraserHitOptions) != null){
+            emitOperation('delete', i);
             switch(objects[i].type){
             case 'raster':
-              emitOperation('delete', i, rasterToRaw(objects[i]));
+              addToHistory('delete', i, rasterToRaw(objects[i]));
               break;
             default:
-              emitOperation('delete', i, pathToRaw(objects[i]));
+              addToHistory('delete', i, pathToRaw(objects[i]));
             }
             objects[i].remove();
           }
@@ -345,7 +354,7 @@
     tools.hand.onMouseDown = function(event) {
       var hit = false; 
       var selected = currentRevision + 1;
-      while (!hit && selected > 0) {
+      while (!hit && (selected > 0)) {
         selected--;
         if(objects[selected] !== undefined){
           if(objects[selected].hitTest(event.point,handHitOptions) != null){
@@ -364,7 +373,9 @@
         var move = new paper.Point(event.point.x - tools.hand.stand.x, event.point.y - tools.hand.stand.y) ;
         tools.hand.stand = event.point;
         tools.hand.dragged.translate(move);
-        emitOperation('move', { handle: tools.hand.handle, move: move });
+        var data = { handle: tools.hand.handle, move: move };
+        emitOperation('move', data);
+        addToHistory('move',data);
         paper.view.draw();
       }
     };
@@ -372,8 +383,7 @@
     tools.hand.onMouseUp = function(event) {
       if (tools.hand.dragged != undefined) {
         var move = new paper.Point(event.point.x - tools.hand.from.x, event.point.y - tools.hand.from.y) ;
-        historyPointer = history.push({ event: 'move', data: { handle: tools.hand.handle, move: move } }) - 1;
-        console.log('historyPointer', historyPointer);
+        addToHistory('move', { handle: tools.hand.handle, move: move });
         tools.hand.selected = undefined;
         tools.hand.dragged = undefined;
         tools.hand.from = undefined;
