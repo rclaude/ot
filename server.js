@@ -36,20 +36,31 @@ server.on('connection', function(socket) {
   });
   
   socket.on('point', function (data) {
-    //console.log('point', client, data, 'object', handle, 'in', objects.length);
+    console.log('point from', client, 'data.handle', data.handle, 'handle', handle);
     if (handle === undefined) {
-      handle = objects.push([]) - 1;
+      var path = {
+        color: data.color,
+        width: data.width,
+        segments: []
+      }
+      handle = objects.push(path) - 1;
+      console.log('affecting handle', handle, 'to client', client);
       send(socket, 'handle', handle);
     }
-    objects[handle].push(data);
+    objects[handle].segments.push(data);
     broadcast(client, 'point', { handle: handle, point: data });
   });
 
   socket.on('path', function (data) {
-    //console.log('path', client, data);
+    console.log('path from', client, 'data.handle', data.handle, 'handle', handle);
+    if (data.handle === undefined) {
+      handle = data.handle = objects.push([]) - 1;
+      console.log('WARNING affecting path handle', handle, 'to client', client);
+      send(socket, 'handle', handle);
+    }
     objects[data.handle] = data.obj;
     broadcast(client, 'path', data);
-    if(handle === data.handle) handle = undefined;
+    if (handle === data.handle) handle = undefined;
   });
 
   socket.on('move', function(data) {

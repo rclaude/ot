@@ -50,7 +50,7 @@
     paper.setup(canvas);
 
     // create the initial state
-    var path, handle, objects = {}, history = [];
+    var handle, objects = {}, buffer = [], history = [];
     var currentRevision = -1;
     var historyPointer= -1;
 
@@ -59,10 +59,10 @@
     function redraw (since, data) {
       // first we erase all the objects after since
       var until = since + data.length;
-      console.log('currentRevision', until-1);
+      //console.log('currentRevision', until-1);
       for (var i = since; i < until ; i++) {
         if (data[i] != null)
-          switch(data[i].type){
+          switch (data[i].type) {
           case 'raster':
             var raster = data[i];
             raster.handle = i;
@@ -78,27 +78,28 @@
 
     function rawToPath (raw) {
       var path = new paper.Path();
+      //console.log('raw',raw);
       path.strokeColor = raw.color;
       path.strokeWidth = raw.width;
-
-      for (var i = 0 ; i < raw.curves.length ; i++) {
-        path.add(new paper.Point(raw.curves[i].pointx, raw.curves[i].pointy));
-        path.segments[i].handleIn = new paper.Point(raw.curves[i].handleInx,raw.curves[i].handleIny);
-        path.segments[i].handleOut = new paper.Point(raw.curves[i].handleOutx,raw.curves[i].handleOuty);
+      for (var i = 0 ; i < raw.segments.length ; i++) {
+        path.add(new paper.Point(raw.segments[i].x, raw.segments[i].y));
+        path.segments[i].handleIn = new paper.Point(raw.segments[i].handleInx, raw.segments[i].handleIny);
+        path.segments[i].handleOut = new paper.Point(raw.segments[i].handleOutx, raw.segments[i].handleOuty);
       }
       if (raw.move) {
         path.translate(raw.move);
       }
+      //console.log('rawtopath', path);
       return path;
     }
 
     function pathToRaw (path) {
-      var curves = [];
+      var segments = [];
       for (var i = 0 ; i < path.segments.length ; i++) {
         var seg = path.segments[i];
-        curves.push({
-          pointx: seg._point._x,
-          pointy: seg._point._y,
+        segments.push({
+          x: seg._point._x,
+          y: seg._point._y,
           handleInx: seg._handleIn._x,
           handleIny: seg._handleIn._y,
           handleOutx: seg._handleOut._x,
@@ -106,7 +107,7 @@
         });
       }
       return {
-        curves: curves,
+        segments: segments,
         color: path.color,
         width: path.strokeWidth
       };
@@ -122,9 +123,16 @@
     /* NETWORK */
 
     // function building the client operations history
-    function emitOperation (event, data, lostData) {
-      channel.send(event, data);
-      if (event == 'path' || event == 'delete') {
+    function emitOperation (event, data, lostData, skipHistory) {
+      if (buffer.length < 2) { // sync
+        if (event == 'path') {
+          buffer.shift();
+          handle = undefined;
+        }
+        channel.send(event, data);
+        //console.log(event, data);
+      }
+      if (!skipHistory && (event == 'path' || event == 'delete')) { // history
         historyPointer = history.push( {event: event, data: data, lostData: lostData} ) - 1;
         console.log('historyPointer', historyPointer);
       }
@@ -132,14 +140,14 @@
 
     // TODO make this the answer to "my handle is objects.length"
     channel.on('state', function(data) {
-      console.log('state',data);
+      //console.log('state',data);
       redraw(0, data);
       console.log('objects',objects);
     });
 
     // receive points from others
     channel.on('point', function(data) {
-      console.log('point', handle);
+      //console.log('point number', data.handle);
       // the handle is bigger than our current revision: 
       // ==> we receive a new object!
       if (currentRevision < data.handle) { 
@@ -148,7 +156,7 @@
         objects[data.handle].color = data.point.color; // don't remove this
         objects[data.handle].strokeColor = data.point.color;
         objects[data.handle].strokeWidth = data.point.width;
-        console.log('creation', objects[data.handle]);
+        //console.log('creation', objects[data.handle]);
       }
 
       // the handle is smaller than our revision but we don't have the object:
@@ -156,15 +164,24 @@
       if (objects[data.handle] == null) {
         console.error('missed object', data.handle, ', ask for new state');
       } else { // expected behavior: add the new point to the object
-        console.log('expected', objects[data.handle]);
+        //console.log('expected', objects[data.handle]);
         objects[data.handle].add(data.point);
         paper.view.draw();
       }
     });
 
+    // when other objects are finalized path
+    channel.on('path', function(data) {
+      console.log('path handle', data.handle);
+      if(objects[data.handle])
+        objects[data.handle].remove();
+      objects[data.handle] = rawToPath(data.obj);
+      paper.view.draw();
+    });
+
     // receive raster images
     channel.on('raster', function(data) {
-      console.log('raster', data);
+      //console.log('raster', data);
       var img = document.createElement('img');
       img.id = 'img' + data.id;
       img.src = 'http://localhost:8080/img/' + data.id;
@@ -187,26 +204,22 @@
 
     // the server gives us the handle to our current object
     channel.on('handle', function(data) {
-      console.log('handle', data);
+      console.log('handle', data, 'buffer.length', buffer.length);
       handle = data;
-      if (handle !== currentRevision + 1)
-        console.error('our handle was late and we are doomed, ask for new state');
-      objects[handle] = path;
+      if (handle !== currentRevision + 1) console.error('our handle was late and we are doomed, ask for new state');
+      objects[handle] = buffer[0];
+      if (buffer.length > 1) {
+        console.log('buffer was full, shifting');
+        buffer.shift();
+        channel.send('path', buffer[0]);
+        handle = undefined;
+      }
       currentRevision++;
-    });
-
-    // when other objects are finalized path
-    channel.on('path', function(data) {
-      console.log('path', data);
-      if(objects[data.handle])
-        objects[data.handle].remove();
-      objects[data.handle] = rawToPath(data.obj);
-      paper.view.draw();
     });
 
     // relative move of an object from it's current location
     channel.on('move', function(data) {
-      console.log('move', data);
+      //console.log('move', data);
       objects[data.handle].translate(data.move);
       paper.view.draw();
     });
@@ -231,7 +244,7 @@
     tool.onMouseDown = function (event) {
       var id = document.querySelector('input[name=tool]:checked').value;
       if (tools[id].onMouseDown !== undefined) {
-        console.log('calling',id,'onMouseDown');
+        //console.log('calling',id,'onMouseDown');
         tools[id].onMouseDown(event);
       }
     };
@@ -239,7 +252,7 @@
     tool.onMouseDrag = function (event) {
       var id = document.querySelector('input[name=tool]:checked').value;
       if (tools[id].onMouseDrag !== undefined) {
-        console.log('calling',id,'onMouseDrag');
+        //console.log('calling',id,'onMouseDrag');
         tools[id].onMouseDrag(event);
       }
     };
@@ -247,7 +260,7 @@
     tool.onMouseUp = function (event) {
       var id = document.querySelector('input[name=tool]:checked').value;
       if (tools[id].onMouseUp !== undefined) {
-        console.log('calling',id,'onMouseUp');
+        //console.log('calling',id,'onMouseUp');
         tools[id].onMouseUp(event);
       }
     };
@@ -258,7 +271,8 @@
 
     // A click begins the drawing of a new object
     tools.pen.onMouseDown = function (event) {
-      path = new paper.Path();
+      buffer.push(new paper.Path());
+      var path = buffer[buffer.length - 1];
       var point = event.point;
       point.color = bar.color.value;
       point.width = bar.width.value;
@@ -271,12 +285,15 @@
 
     // When the user drags the mouse, add points to current object and send them
     tools.pen.onMouseDrag = function (event) {
+      var path = buffer[buffer.length - 1];
       path.add(event.point);
       emitOperation('point', event.point);
     };
 
     // When the mouse is released, we compress the current object
     tools.pen.onMouseUp = function (event) {
+      var path = buffer[buffer.length - 1];
+      //if (path._segments.length > 1) 
       path.simplify(10);
       paper.view.draw();
       emitOperation('path', { handle: handle, obj: pathToRaw(path) });
