@@ -22,7 +22,7 @@
   }
 </style>
 
-<form id=bar action=http://localhost:8080/upload enctype=multipart/form-data method=post target=uploader>
+<form id=bar action=http://localhost.ovh.net:8080/upload enctype=multipart/form-data method=post target=uploader>
   <input name=color  type=color>
   <input name=width  type=number value=1 min=1 max=10>
   <input name=tool   type=radio  value=pen checked> draw
@@ -35,13 +35,13 @@
 
 <canvas id=canvas resize></canvas>
 
-<iframe id=uploader src=http://localhost:8080 class=hidden height=500 width=700></iframe>
+<iframe id=uploader src=http://localhost.ovh.net:8080 class=hidden height=500 width=700></iframe>
 
 <script src=./paper.js></script>
 <script src=./webrtc.js></script>
 <script>
 
-  var channel = new WebRTC.DataChannel('ws://localhost:1234'),
+  var channel = new WebRTC.DataChannel('ws://localhost.ovh.net:1234'),
       bar = document.getElementById('bar');
 
   paper.install(window);
@@ -130,19 +130,9 @@
     // function building the client operations history
     function emitOperation (event, data) {
       if (buffer.length < 2) { // sync
-        if (event == 'path') {
-          buffer.shift();
-          handle = undefined;
-        }
         channel.send(event, data);
       }
     }
-
-    function addToHistory (event, data, lostData) {
-      historyPointer = history.push( {event: event, data: data, lostData: lostData} ) - 1;
-      console.log('historyPointer', historyPointer);
-    }
-    
 
     // TODO make this the answer to "my handle is objects.length"
     channel.on('state', function(data) {
@@ -190,7 +180,7 @@
       //console.log('raster', data);
       var img = document.createElement('img');
       img.id = 'img' + data.id;
-      img.src = 'http://localhost:8080/img/' + data.id;
+      img.src = 'http://localhost.ovh.net:8080/img/' + data.id;
       img.style.display = 'none';
       img.onload = function() {
         var raster = new paper.Raster(img.id);
@@ -238,7 +228,7 @@
 
     channel.on('close', function() {
       // TODO try to reconnect
-      //channel = new WebRTC.DataChannel('ws://localhost:1234');
+      //channel = new WebRTC.DataChannel('ws://localhost.ovh.net:1234');
     });
 
     /* TOOLS */
@@ -302,9 +292,11 @@
       //if (path._segments.length > 1) 
       path.simplify(10);
       paper.view.draw();
-      var data =  { handle: handle, obj: pathToRaw(path) };
+      path.raw = pathToRaw(path);
+      var data =  { handle: handle, obj: path.raw };
       emitOperation('path', data);
-      addToHistory('path', data);
+      addToHistory('path', data, path);
+      handle = undefined;
     };
 
     // ERASER
@@ -318,17 +310,30 @@
     };
 
     tools.eraser.onMouseDown = tools.eraser.onMouseDrag = function(event) {
-      for(var i = currentRevision ; i >= 0 ; i--){
-        if(objects[i] !== undefined){
-          if(objects[i].hitTest(event.point,eraserHitOptions) != null){
-            emitOperation('delete', i);
-            switch(objects[i].type){
+      for (var i = buffer.length - 1 ; i > 0 ; i--) {// Notice: an object waiting for his handle can't be delete.
+        if (buffer[i].hitTest(event.point, eraserHitOptions) != null) {
+          switch (buffer[i].type) {
+          case 'raster':
+            addToHistory('delete', i, null, rasterToRaw(buffer[i]));
+            break;
+          default:
+            addToHistory('delete', i, null, pathToRaw(buffer[i]));
+          }
+          buffer[i].remove();
+          buffer.splice(i, 1);
+        }
+      }
+      for (var i = currentRevision ; i >= 0 ; i--) {
+        if (objects[i] !== undefined) {
+          if (objects[i].hitTest(event.point, eraserHitOptions) != null) {
+            switch (objects[i].type) {
             case 'raster':
-              addToHistory('delete', i, rasterToRaw(objects[i]));
+              addToHistory('delete', i, null, rasterToRaw(objects[i]));
               break;
             default:
-              addToHistory('delete', i, pathToRaw(objects[i]));
+              addToHistory('delete', i, null, pathToRaw(objects[i]));
             }
+            emitOperation('delete', i);
             objects[i].remove();
           }
         }
@@ -352,12 +357,25 @@
     };
 
     tools.hand.onMouseDown = function(event) {
-      var hit = false; 
-      var selected = currentRevision + 1;
+      var hit = false;
+      // the hitTests are processed on latest objects first
+      var selected = buffer.length;
+      console.log('buffer.length', buffer.length);
+      while (!hit && (selected > 1)) {
+        selected--;
+        console.log(buffer[selected].hitTest(event.point, handHitOptions));
+        if (buffer[selected].hitTest(event.point, handHitOptions) != null) {
+          hit = true;
+          tools.hand.dragged = buffer[selected];
+          tools.hand.from = event.point;
+          tools.hand.stand = event.point;
+        }
+      }// Notice: an object waiting for his handle can't be move.
+      selected = currentRevision + 1;
       while (!hit && (selected > 0)) {
         selected--;
-        if(objects[selected] !== undefined){
-          if(objects[selected].hitTest(event.point,handHitOptions) != null){
+        if (objects[selected] !== undefined) {
+          if (objects[selected].hitTest(event.point, handHitOptions) != null) {
             hit = true;
             tools.hand.handle = selected;
             tools.hand.dragged = objects[selected];
@@ -373,17 +391,24 @@
         var move = new paper.Point(event.point.x - tools.hand.stand.x, event.point.y - tools.hand.stand.y) ;
         tools.hand.stand = event.point;
         tools.hand.dragged.translate(move);
-        var data = { handle: tools.hand.handle, move: move };
-        emitOperation('move', data);
-        addToHistory('move',data);
+        if (tools.hand.handle) {
+          var data = { handle: tools.hand.handle, move: move };
+          emitOperation('move', data);
+        } else {
+          if (!tools.hand.dragged.move) {
+            tools.hand.dragged.move = { x: 0, y: 0 };
+          } 
+          tools.hand.dragged.move.x += move.x;
+          tools.hand.dragged.move.y += move.y;
+        }
         paper.view.draw();
       }
     };
 
     tools.hand.onMouseUp = function(event) {
       if (tools.hand.dragged != undefined) {
-        var move = new paper.Point(event.point.x - tools.hand.from.x, event.point.y - tools.hand.from.y) ;
-        addToHistory('move', { handle: tools.hand.handle, move: move });
+        var move = new paper.Point(event.point.x - tools.hand.from.x, event.point.y - tools.hand.from.y);
+        addToHistory('move', { handle: tools.hand.handle, move: move }, tools.hand.dragged);
         tools.hand.selected = undefined;
         tools.hand.dragged = undefined;
         tools.hand.from = undefined;
@@ -395,48 +420,90 @@
   
     addEventListener('keydown', function(event) {
       if (event.ctrlKey)
-        if (event.keyCode == 90){ // ctrl+z
-          console.log('keydown', event);
+        if (event.keyCode == 90) { // ctrl+z
+          console.log('ctrl+z', historyPointer, history);
           undo();
         }
-        else if (event.keyCode == 89) // ctrl+v
+        else if (event.keyCode == 89) {// ctrl+v
+          console.log('ctrl+v', historyPointer, history);
           redo();
+        }
     });
 
     function undo () {
-      if (historyPointer >= 0) {
-        var operation = history[historyPointer];
-        console.log('undo', operation);
-        historyPointer--;
-        switch (operation.event) {
-        case 'path':
+      if (historyPointer < 1) return;
+      var operation = history[historyPointer];
+      historyPointer--;
+      console.log('undo', operation);
+      switch (operation.event) {
+      case 'path':
+        if (buffer.indexOf(operation.ref) < 0 && objects.indexOf(operation.ref) > 0) {
           channel.send('delete', operation.data.handle);
           channel.handlers['delete'] (operation.data.handle);
-          break;
-        case 'move':
-          var inverse = new paper.Point(0 - operation.data.move.x, 0 - operation.data.move.y);
+        } else if (buffer.indexOf(operation.ref) > 0) {
+          buffer.splice(buffer.indexOf(operation.ref),1);
+          operation.ref.remove();
+        }
+        break;
+      case 'move':
+        var inverse = new paper.Point(0 - operation.data.move.x, 0 - operation.data.move.y);
+        if (buffer.indexOf(operation.ref) < 0) {
           channel.send('move', { handle: operation.data.handle, move: inverse });
           channel.handlers['move'] ({ handle: operation.data.handle, move: inverse });
-          break;
-        case 'delete':
+        } else if (buffer.indexOf(operation.ref) > 0) {
+          operation.ref.translate(inverse);
+          paper.view.draw();
+          if (!operation.ref.raw.move) {
+            operation.ref.raw.move = { x: 0, y: 0 };
+          } 
+          operation.ref.raw.move.x += inverse.x;
+          operation.ref.raw.move.y += inverse.y;
+        }
+        break;
+      case 'delete':
+        if (operation.data != undefined) {
           channel.send('path', {handle: operation.data, obj: operation.lostData});
           channel.handlers['path'] ({handle: operation.data, obj: operation.lostData});
-          break;
+        } else {
+          operation.ref = rawToPath(operation.lostData);
+          buffer.push(operation.ref);
         }
       }
+      paper.view.draw();
     }
 
     function redo () {
       if (historyPointer < (history.length - 1)) {
         historyPointer++;
         var operation = history[historyPointer];
-        //console.log('historyPointer', operation);
-        channel.send(operation.event,operation.data);
-        channel.handlers[operation.event] (operation.data);
+        console.log('redo', operation);
+        if (buffer.indexOf(operation.ref) < 0) {
+          channel.send(operation.event,operation.data);
+          channel.handlers[operation.event] (operation.data);
+        } else {
+          switch (operation.event) {
+          case 'path':
+            operation.ref = rawToPath(operation.lostData);
+            buffer.push(operation.ref);
+            break;
+          case 'move':
+            operation.ref.translate(operation.data.move);
+            break;
+          case 'delete':
+            buffer.splice(buffer.indexOf(operation.ref), 1);
+            operation.ref.remove();
+          }
+        }
       }
+    }
+
+    function addToHistory (event, data, ref, lostData) {
+      historyPointer = history.push( {event: event, data: data, ref: ref, lostData: lostData} ) - 1;
+      console.log('historyPointer', historyPointer);
     }
   };
 
+  /* MISC */
   function snapshot () {
     window.open(canvas.toDataURL("image/png"));
   }
