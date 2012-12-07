@@ -9,7 +9,7 @@ var ws = require('ws'),
 function send(socket, event, data) {
   if (socket) {
     try { socket.send(JSON.stringify({ event: event, data: data })); }
-    catch(e) { console.error('WARNING : a disconnected client is still in the socket list'); }
+    catch(e) { console.error('WARNING : socket', sockets.indexOf(socket),'is not working'); }
   }
 }
 
@@ -28,7 +28,8 @@ server.on('connection', function(socket) {
   var client = sockets.push(socket) - 1, handle = undefined;
   send(socket, 'state', objects); // first key frame
 
-  console.log('client', client, 'join');
+  console.log('client', client, 'join =>', sockets.length, 'client(s)');
+  broadcast(null, 'nbUsers', sockets.length);
 
   socket.on('message', function (data) {
     var message = JSON.parse(data);
@@ -89,7 +90,8 @@ server.on('connection', function(socket) {
 
   socket.on('close', function () {
     console.log('client', client, 'left');
-    sockets.splice(client);
+    sockets.splice(client,1);
+    broadcast(null, 'nbUsers', sockets.length);
   });
 });
 

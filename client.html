@@ -17,14 +17,20 @@
     width: 30px;
     margin: 10px;
   }
+  #userInfo {
+    position: absolute;
+    left: 0px;
+    top: 0px;
+    color: grey;
+  }
   .hidden {
     display: none;
   }
 </style>
 
-<form id=bar action=http://localhost.ovh.net:8080/upload enctype=multipart/form-data method=post target=uploader>
+<form id=bar action=http://localhost:8080/upload enctype=multipart/form-data method=post target=uploader>
   <input name=color  type=color>
-  <input name=width  type=number value=1 min=1 max=10>
+  <input name=width  type=number value=1 min=1 max=100>
   <input name=tool   type=radio  value=pen checked> draw
   <input name=tool   type=radio  value=eraser> erase
   <input name=tool   type=radio  value=hand> move
@@ -32,17 +38,17 @@
   <input type=submit value=submit>
   <input type=button value=download onclick=snapshot()></form> 
 </form>
-
+<div id=userInfo><img src='./images/user.png'/>&empty;</div> 
 <canvas id=canvas resize></canvas>
-
-<iframe id=uploader src=http://localhost.ovh.net:8080 class=hidden height=500 width=700></iframe>
+<iframe id=uploader src=http://localhost:8080 class=hidden height=500 width=700></iframe>
 
 <script src=./paper.js></script>
 <script src=./webrtc.js></script>
 <script>
 
-  var channel = new WebRTC.DataChannel('ws://localhost.ovh.net:1234'),
-      bar = document.getElementById('bar');
+  var channel = new WebRTC.DataChannel('ws://localhost:1234'),
+      bar = document.getElementById('bar'),
+      userInfo = document.getElementById('userInfo');
 
   paper.install(window);
 
@@ -134,11 +140,15 @@
       }
     }
 
-    // TODO make this the answer to "my handle is objects.length"
     channel.on('state', function(data) {
       //console.log('state',data);
       redraw(0, data);
       console.log('objects',objects);
+    });
+
+    channel.on('nbUsers', function(data) {
+      //console.log('nbUsers',data);
+      userInfo.innerHTML =  "<img src='./images/user.png'/>" + data;
     });
 
     // receive points from others
@@ -180,7 +190,7 @@
       //console.log('raster', data);
       var img = document.createElement('img');
       img.id = 'img' + data.id;
-      img.src = 'http://localhost.ovh.net:8080/img/' + data.id;
+      img.src = 'http://localhost:8080/img/' + data.id;
       img.style.display = 'none';
       img.onload = function() {
         var raster = new paper.Raster(img.id);
@@ -191,7 +201,7 @@
           raster.position = new paper.Point(canvas.width/2, canvas.height/2);
         }
         objects[data.handle] = raster;
-        console.log(raster);
+        console.log('raster',raster);
         paper.view.draw();
       };
       currentRevision = data.handle;
@@ -228,7 +238,7 @@
 
     channel.on('close', function() {
       // TODO try to reconnect
-      //channel = new WebRTC.DataChannel('ws://localhost.ovh.net:1234');
+      //channel = new WebRTC.DataChannel('ws://localhost:1234');
     });
 
     /* TOOLS */
@@ -363,7 +373,7 @@
       console.log('buffer.length', buffer.length);
       while (!hit && (selected > 1)) {
         selected--;
-        console.log(buffer[selected].hitTest(event.point, handHitOptions));
+        console.log('hitTest', buffer[selected].hitTest(event.point, handHitOptions));
         if (buffer[selected].hitTest(event.point, handHitOptions) != null) {
           hit = true;
           tools.hand.dragged = buffer[selected];
@@ -394,12 +404,6 @@
         if (tools.hand.handle) {
           var data = { handle: tools.hand.handle, move: move };
           emitOperation('move', data);
-        } else {
-          if (!tools.hand.dragged.move) {
-            tools.hand.dragged.move = { x: 0, y: 0 };
-          } 
-          tools.hand.dragged.move.x += move.x;
-          tools.hand.dragged.move.y += move.y;
         }
         paper.view.draw();
       }
@@ -408,6 +412,13 @@
     tools.hand.onMouseUp = function(event) {
       if (tools.hand.dragged != undefined) {
         var move = new paper.Point(event.point.x - tools.hand.from.x, event.point.y - tools.hand.from.y);
+        if (!tools.hand.handle) {
+          if (!tools.hand.dragged.move) {
+            tools.hand.dragged.move = { x: 0, y: 0 };
+          } 
+          tools.hand.dragged.move.x += move.x;
+          tools.hand.dragged.move.y += move.y;
+        }
         addToHistory('move', { handle: tools.hand.handle, move: move }, tools.hand.dragged);
         tools.hand.selected = undefined;
         tools.hand.dragged = undefined;
@@ -437,7 +448,7 @@
       console.log('undo', operation);
       switch (operation.event) {
       case 'path':
-        if (buffer.indexOf(operation.ref) < 0 && objects.indexOf(operation.ref) > 0) {
+        if (buffer.indexOf(operation.ref) < 0 && operation.ref != undefined) {
           channel.send('delete', operation.data.handle);
           channel.handlers['delete'] (operation.data.handle);
         } else if (buffer.indexOf(operation.ref) > 0) {
@@ -494,6 +505,7 @@
             operation.ref.remove();
           }
         }
+        paper.view.draw();
       }
     }
 
