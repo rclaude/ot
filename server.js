@@ -9,12 +9,18 @@ var ws = require('ws'),
 function send(socket, event, data) {
   if (socket) {
     try { socket.send(JSON.stringify({ event: event, data: data })); }
-    catch(e) { console.error('WARNING : socket', sockets.indexOf(socket),'is not working'); }
+    catch(e) { 
+      console.error(e);
+      console.error('WARNING : socket', sockets.indexOf(socket),'fail => we remove it leaving',sockets.length - 1,'client(s)'); 
+      sockets.splice(sockets.indexOf(socket), 1);
+    }
   }
 }
 
 function broadcast (from, event, data) {
-  for (var i = 0 ; i < sockets.length ; i++) if (i != from) send(sockets[i], event, data);
+  var fromIdx = sockets.indexOf(from);
+  for (var i = 0, len = sockets.length ; i < len; i++) 
+    if (i != fromIdx) send(sockets[i], event, data);
 }
 
 
@@ -25,10 +31,12 @@ var server = new ws.Server({ port: +process.argv[2] || 1234 }),
 
 server.on('connection', function(socket) {
 
-  var client = sockets.push(socket) - 1, handle = undefined;
+  var handle = undefined;
+  console.log('new client', sockets.push(socket)) ;
+
   send(socket, 'state', objects); // first key frame
 
-  console.log('client', client, 'join =>', sockets.length, 'client(s)');
+  console.log('new client join =>', sockets.length, 'client(s)');
   broadcast(null, 'nbUsers', sockets.length);
 
   socket.on('message', function (data) {
@@ -37,7 +45,7 @@ server.on('connection', function(socket) {
   });
   
   socket.on('point', function (data) {
-    console.log('point from', client, 'data.handle', data.handle, 'handle', handle);
+    console.log('point from', socket.upgradeReq.headers.origin, 'data.handle', data.handle, 'handle', handle);
     if (handle === undefined) {
       var path = {
         color: data.color,
@@ -45,52 +53,50 @@ server.on('connection', function(socket) {
         segments: []
       }
       handle = objects.push(path) - 1;
-      console.log('affecting handle', handle, 'to client', client);
+      console.log('affecting handle', handle, 'to client', socket.upgradeReq.headers.origin);
       send(socket, 'handle', handle);
     }
     objects[handle].segments.push(data);
-    broadcast(client, 'point', { handle: handle, point: data });
+    broadcast(socket, 'point', { handle: handle, point: data });
   });
 
   socket.on('path', function (data) {
-    console.log('path from', client, 'data.handle', data.handle, 'handle', handle);
+    console.log('path from', socket.upgradeReq.headers.origin, 'data.handle', data.handle, 'handle', handle);
     if (data.handle === undefined) {
       handle = data.handle = objects.push([]) - 1;
-      console.log('WARNING affecting path handle', handle, 'to client', client);
+      console.log('WARNING affecting path handle', handle, 'to client', socket.upgradeReq.headers.origin);
       send(socket, 'handle', handle);
     }
     objects[data.handle] = data.obj;
-    broadcast(client, 'path', data);
+    broadcast(socket, 'path', data);
     if (handle === data.handle) handle = undefined;
   });
 
   socket.on('move', function(data) {
-    //console.log('move', client, data)
     switch (data.type) {
-    case 'raster':
-        objects[data.handle].position.x += data.move.x;
-        objects[data.handle].position.y += data.move.y;
-    default:
-      if (!objects[data.handle].move) {
-        objects[data.handle].move = data.move;
-      } else {
-        objects[data.handle].move.x += data.move.x;
-        objects[data.handle].move.y += data.move.y;
-      }
+      case 'raster':
+          objects[data.handle].position.x += data.move.x;
+          objects[data.handle].position.y += data.move.y;
+      default:
+        if (!objects[data.handle].move) {
+          objects[data.handle].move = data.move;
+        } else {
+          objects[data.handle].move.x += data.move.x;
+          objects[data.handle].move.y += data.move.y;
+        }
     }
-    broadcast(client, 'move', data);
+    broadcast(socket, 'move', data);
    
   });
 
   socket.on('delete', function(data) {
-    //console.log('delete', client, data);
     objects[data] = null;
-    broadcast(client, 'delete', data);
+    broadcast(socket, 'delete', data);
   });
 
   socket.on('close', function () {
-    console.log('client', client, 'left');
-    sockets.splice(client,1);
+    console.log('client', sockets.indexOf(socket), 'left');
+    sockets.splice(sockets.indexOf(socket), 1);
     broadcast(null, 'nbUsers', sockets.length);
   });
 });

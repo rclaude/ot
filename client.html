@@ -66,20 +66,18 @@
 
     function redraw (since, data) {
       // first we erase all the objects after since
-      for (var i = since; i < objects.length ; i++)
+      for (var i = since, len = objects.length ; i < len ; i++)
         if (objects[i]) objects[i].remove();
-      var until = since + data.length;
-      //console.log('currentRevision', until-1);
-      for (var i = since; i < until ; i++) {
+      for (var i = since, until = since + data.length ; i < until ; i++) {
         if (data[i] != null)
           switch (data[i].type) {
-          case 'raster':
-            var raster = data[i];
-            raster.handle = i;
-            channel.handlers['raster'] (raster);
-            break;
-          default:
-            objects[i] = rawToPath(data[i]);
+            case 'raster':
+              var raster = data[i];
+              raster.handle = i;
+              channel.handlers['raster'] (raster);
+              break;
+            default:
+              objects[i] = rawToPath(data[i]);
           }
       }
       currentRevision = until - 1;
@@ -92,7 +90,7 @@
       path.color = raw.color;
       path.strokeColor = raw.color;
       path.strokeWidth = raw.width;
-      for (var i = 0 ; i < raw.segments.length ; i++) {
+      for (var i = 0, len = raw.segments.length ; i < len ; i++) {
         path.add(new paper.Point(raw.segments[i].x, raw.segments[i].y));
         path.segments[i].handleIn = new paper.Point(raw.segments[i].handleInx, raw.segments[i].handleIny);
         path.segments[i].handleOut = new paper.Point(raw.segments[i].handleOutx, raw.segments[i].handleOuty);
@@ -106,7 +104,7 @@
 
     function pathToRaw (path) {
       var segments = [];
-      for (var i = 0 ; i < path.segments.length ; i++) {
+      for (var i = 0, len = path.segments.length ; i < len ; i++) {
         var seg = path.segments[i];
         segments.push({
           x: seg._point._x,
@@ -135,8 +133,13 @@
 
     // function building the client operations history
     function emitOperation (event, data) {
+      console.log('emit',event, data, 'bufferSize', buffer.length);
       if (buffer.length < 2) { // sync
         channel.send(event, data);
+        if (handle != undefined && event == 'path') { // handle has been received
+          buffer.shift();
+          handle = undefined;
+        }
       }
     }
 
@@ -215,7 +218,7 @@
       if (handle !== currentRevision + 1) console.error('our handle was late and we are doomed, ask for new state');
       objects[handle] = buffer[0];
       if (buffer.length > 1) {
-        console.log('buffer was full, shifting');
+        console.log('buffer has more than one element, shifting after receiving handle');
         buffer.shift();
         channel.send('path', buffer[0]);
         handle = undefined;
@@ -299,7 +302,6 @@
     // When the mouse is released, we compress the current object
     tools.pen.onMouseUp = function (event) {
       var path = buffer[buffer.length - 1];
-      //if (path._segments.length > 1) 
       path.simplify(10);
       paper.view.draw();
       path.raw = pathToRaw(path);
@@ -323,25 +325,25 @@
       for (var i = buffer.length - 1 ; i > 0 ; i--) {// Notice: an object waiting for his handle can't be delete.
         if (buffer[i].hitTest(event.point, eraserHitOptions) != null) {
           switch (buffer[i].type) {
-          case 'raster':
-            addToHistory('delete', i, null, rasterToRaw(buffer[i]));
-            break;
-          default:
-            addToHistory('delete', i, null, pathToRaw(buffer[i]));
+            case 'raster':
+              addToHistory('delete', i, null, rasterToRaw(buffer[i]));
+              break;
+            default:
+              addToHistory('delete', i, null, pathToRaw(buffer[i]));
+            }
+            buffer[i].remove();
+            buffer.splice(i, 1);
           }
-          buffer[i].remove();
-          buffer.splice(i, 1);
-        }
       }
       for (var i = currentRevision ; i >= 0 ; i--) {
         if (objects[i] !== undefined) {
           if (objects[i].hitTest(event.point, eraserHitOptions) != null) {
             switch (objects[i].type) {
-            case 'raster':
-              addToHistory('delete', i, null, rasterToRaw(objects[i]));
-              break;
-            default:
-              addToHistory('delete', i, null, pathToRaw(objects[i]));
+              case 'raster':
+                addToHistory('delete', i, null, rasterToRaw(objects[i]));
+                break;
+              default:
+                addToHistory('delete', i, null, pathToRaw(objects[i]));
             }
             emitOperation('delete', i);
             objects[i].remove();
@@ -447,38 +449,38 @@
       historyPointer--;
       console.log('undo', operation);
       switch (operation.event) {
-      case 'path':
-        if (buffer.indexOf(operation.ref) < 0 && operation.ref != undefined) {
-          channel.send('delete', operation.data.handle);
-          channel.handlers['delete'] (operation.data.handle);
-        } else if (buffer.indexOf(operation.ref) > 0) {
-          buffer.splice(buffer.indexOf(operation.ref),1);
-          operation.ref.remove();
-        }
-        break;
-      case 'move':
-        var inverse = new paper.Point(0 - operation.data.move.x, 0 - operation.data.move.y);
-        if (buffer.indexOf(operation.ref) < 0) {
-          channel.send('move', { handle: operation.data.handle, move: inverse });
-          channel.handlers['move'] ({ handle: operation.data.handle, move: inverse });
-        } else if (buffer.indexOf(operation.ref) > 0) {
-          operation.ref.translate(inverse);
-          paper.view.draw();
-          if (!operation.ref.raw.move) {
-            operation.ref.raw.move = { x: 0, y: 0 };
-          } 
-          operation.ref.raw.move.x += inverse.x;
-          operation.ref.raw.move.y += inverse.y;
-        }
-        break;
-      case 'delete':
-        if (operation.data != undefined) {
-          channel.send('path', {handle: operation.data, obj: operation.lostData});
-          channel.handlers['path'] ({handle: operation.data, obj: operation.lostData});
-        } else {
-          operation.ref = rawToPath(operation.lostData);
-          buffer.push(operation.ref);
-        }
+        case 'path':
+          if (buffer.indexOf(operation.ref) < 0 && operation.ref != undefined) {
+            channel.send('delete', operation.data.handle);
+            channel.handlers['delete'] (operation.data.handle);
+          } else if (buffer.indexOf(operation.ref) > 0) {
+            buffer.splice(buffer.indexOf(operation.ref),1);
+            operation.ref.remove();
+          }
+          break;
+        case 'move':
+          var inverse = new paper.Point(0 - operation.data.move.x, 0 - operation.data.move.y);
+          if (buffer.indexOf(operation.ref) < 0) {
+            channel.send('move', { handle: operation.data.handle, move: inverse });
+            channel.handlers['move'] ({ handle: operation.data.handle, move: inverse });
+          } else if (buffer.indexOf(operation.ref) > 0) {
+            operation.ref.translate(inverse);
+            paper.view.draw();
+            if (!operation.ref.raw.move) {
+              operation.ref.raw.move = { x: 0, y: 0 };
+            } 
+            operation.ref.raw.move.x += inverse.x;
+            operation.ref.raw.move.y += inverse.y;
+          }
+          break;
+        case 'delete':
+          if (operation.data != undefined) {
+            channel.send('path', {handle: operation.data, obj: operation.lostData});
+            channel.handlers['path'] ({handle: operation.data, obj: operation.lostData});
+          } else {
+            operation.ref = rawToPath(operation.lostData);
+            buffer.push(operation.ref);
+          }
       }
       paper.view.draw();
     }
@@ -493,16 +495,16 @@
           channel.handlers[operation.event] (operation.data);
         } else {
           switch (operation.event) {
-          case 'path':
-            operation.ref = rawToPath(operation.lostData);
-            buffer.push(operation.ref);
-            break;
-          case 'move':
-            operation.ref.translate(operation.data.move);
-            break;
-          case 'delete':
-            buffer.splice(buffer.indexOf(operation.ref), 1);
-            operation.ref.remove();
+            case 'path':
+              operation.ref = rawToPath(operation.lostData);
+              buffer.push(operation.ref);
+              break;
+            case 'move':
+              operation.ref.translate(operation.data.move);
+              break;
+            case 'delete':
+              buffer.splice(buffer.indexOf(operation.ref), 1);
+              operation.ref.remove();
           }
         }
         paper.view.draw();
