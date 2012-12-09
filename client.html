@@ -19,9 +19,10 @@
   }
   #userInfo {
     position: absolute;
-    left: 0px;
-    top: 0px;
-    color: grey;
+    left: 16px;
+    top: 10px;
+    color: #424242;
+    font-weight: bold;
   }
   .hidden {
     display: none;
@@ -38,7 +39,8 @@
   <input type=submit value=submit>
   <input type=button value=download onclick=snapshot()></form> 
 </form>
-<div id=userInfo><img src='./images/user.png'/>&empty;</div> 
+<img src='./images/user.png'/>
+<div id=userInfo>&empty;</div> 
 <canvas id=canvas resize></canvas>
 <iframe id=uploader src=http://localhost:8080 class=hidden height=500 width=700></iframe>
 
@@ -151,7 +153,7 @@
 
     channel.on('nbUsers', function(data) {
       //console.log('nbUsers',data);
-      userInfo.innerHTML =  "<img src='./images/user.png'/>" + data;
+      userInfo.innerHTML =  data;
     });
 
     // receive points from others
