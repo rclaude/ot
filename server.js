@@ -32,7 +32,7 @@ var server = new ws.Server({ port: +process.argv[2] || 1234 }),
 server.on('connection', function(socket) {
 
   var handle = undefined;
-  console.log('new client', sockets.push(socket)) ;
+  sockets.push(socket);
 
   send(socket, 'state', objects); // first key frame
 
@@ -45,7 +45,6 @@ server.on('connection', function(socket) {
   });
   
   socket.on('point', function (data) {
-    console.log('point from', socket.upgradeReq.headers.origin, 'data.handle', data.handle, 'handle', handle);
     if (handle === undefined) {
       var path = {
         color: data.color,

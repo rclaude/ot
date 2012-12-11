@@ -88,7 +88,6 @@
 
     function rawToPath (raw) {
       var path = new paper.Path();
-      //console.log('raw',raw);
       path.color = raw.color;
       path.strokeColor = raw.color;
       path.strokeWidth = raw.width;
@@ -100,7 +99,6 @@
       if (raw.move) {
         path.translate(raw.move);
       }
-      //console.log('rawtopath', path);
       return path;
     }
 
@@ -135,7 +133,6 @@
 
     // function building the client operations history
     function emitOperation (event, data) {
-      console.log('emit',event, data, 'bufferSize', buffer.length);
       if (buffer.length < 2) { // sync
         channel.send(event, data);
         if (handle != undefined && event == 'path') { // handle has been received
@@ -146,19 +143,16 @@
     }
 
     channel.on('state', function(data) {
-      //console.log('state',data);
       redraw(0, data);
       console.log('objects',objects);
     });
 
     channel.on('nbUsers', function(data) {
-      //console.log('nbUsers',data);
       userInfo.innerHTML =  data;
     });
 
     // receive points from others
     channel.on('point', function(data) {
-      //console.log('point number', data.handle);
       // the handle is bigger than our current revision: 
       // ==> we receive a new object!
       if (currentRevision < data.handle) { 
@@ -167,7 +161,6 @@
         objects[data.handle].color = data.point.color; // don't remove this
         objects[data.handle].strokeColor = data.point.color;
         objects[data.handle].strokeWidth = data.point.width;
-        //console.log('creation', objects[data.handle]);
       }
 
       // the handle is smaller than our revision but we don't have the object:
@@ -175,7 +168,6 @@
       if (objects[data.handle] == null) {
         console.error('missed object', data.handle, ', ask for new state');
       } else { // expected behavior: add the new point to the object
-        //console.log('expected', objects[data.handle]);
         objects[data.handle].add(data.point);
         paper.view.draw();
       }
@@ -183,7 +175,6 @@
 
     // when other objects are finalized path
     channel.on('path', function(data) {
-      console.log('path handle', data.handle);
       if(objects[data.handle])
         objects[data.handle].remove();
       objects[data.handle] = rawToPath(data.obj);
@@ -192,7 +183,6 @@
 
     // receive raster images
     channel.on('raster', function(data) {
-      //console.log('raster', data);
       var img = document.createElement('img');
       img.id = 'img' + data.id;
       img.src = 'http://localhost:8080/img/' + data.id;
@@ -206,7 +196,6 @@
           raster.position = new paper.Point(canvas.width/2, canvas.height/2);
         }
         objects[data.handle] = raster;
-        console.log('raster',raster);
         paper.view.draw();
       };
       currentRevision = data.handle;
@@ -219,24 +208,32 @@
       handle = data;
       if (handle !== currentRevision + 1) console.error('our handle was late and we are doomed, ask for new state');
       objects[handle] = buffer[0];
+      if (buffer[0].callback) {
+        if (tools.hand.dragged === buffer[0]) {
+          tools.hand.selected = undefined;
+          tools.hand.dragged = undefined;
+          tools.hand.from = undefined;
+          tools.hand.stand = undefined;
+        }
+        if (buffer[0].callback.event == 'delete') buffer[0].callback.data = handle; 
+        channel.send(buffer[0].callback.event, buffer[0].callback.data);
+      }
       if (buffer.length > 1) {
-        console.log('buffer has more than one element, shifting after receiving handle');
         buffer.shift();
         channel.send('path', buffer[0]);
         handle = undefined;
+        console.log('we had a path waiting in the buffer');
       }
       currentRevision++;
     });
 
     // relative move of an object from it's current location
     channel.on('move', function(data) {
-      //console.log('move', data);
       objects[data.handle].translate(data.move);
       paper.view.draw();
     });
 
     channel.on('delete', function(handle) {
-      console.log('delete', handle);
       objects[handle].remove();
       paper.view.draw();
     });
@@ -255,7 +252,6 @@
     tool.onMouseDown = function (event) {
       var id = document.querySelector('input[name=tool]:checked').value;
       if (tools[id].onMouseDown !== undefined) {
-        //console.log('calling',id,'onMouseDown');
         tools[id].onMouseDown(event);
       }
     };
@@ -263,7 +259,6 @@
     tool.onMouseDrag = function (event) {
       var id = document.querySelector('input[name=tool]:checked').value;
       if (tools[id].onMouseDrag !== undefined) {
-        //console.log('calling',id,'onMouseDrag');
         tools[id].onMouseDrag(event);
       }
     };
@@ -271,7 +266,6 @@
     tool.onMouseUp = function (event) {
       var id = document.querySelector('input[name=tool]:checked').value;
       if (tools[id].onMouseUp !== undefined) {
-        //console.log('calling',id,'onMouseUp');
         tools[id].onMouseUp(event);
       }
     };
@@ -324,7 +318,7 @@
     };
 
     tools.eraser.onMouseDown = tools.eraser.onMouseDrag = function(event) {
-      for (var i = buffer.length - 1 ; i > 0 ; i--) {// Notice: an object waiting for his handle can't be delete.
+      for (var i = buffer.length - 1 ; i > 0 ; i--) {
         if (buffer[i].hitTest(event.point, eraserHitOptions) != null) {
           switch (buffer[i].type) {
             case 'raster':
@@ -336,6 +330,10 @@
             buffer[i].remove();
             buffer.splice(i, 1);
           }
+      }
+      if (buffer[0] && buffer[0].hitTest(event.point, eraserHitOptions) != null) {
+        buffer[0].remove();
+        buffer[0] = {callback: {event:'delete'}};
       }
       for (var i = currentRevision ; i >= 0 ; i--) {
         if (objects[i] !== undefined) {
@@ -374,17 +372,16 @@
       var hit = false;
       // the hitTests are processed on latest objects first
       var selected = buffer.length;
-      console.log('buffer.length', buffer.length);
-      while (!hit && (selected > 1)) {
+      while (!hit && (selected > 0)) {
         selected--;
-        console.log('hitTest', buffer[selected].hitTest(event.point, handHitOptions));
         if (buffer[selected].hitTest(event.point, handHitOptions) != null) {
           hit = true;
           tools.hand.dragged = buffer[selected];
           tools.hand.from = event.point;
           tools.hand.stand = event.point;
+          if (selected == 0) buffer[0].callback = { event: 'move',  data: {x:0, y:0} };
         }
-      }// Notice: an object waiting for his handle can't be move.
+      }
       selected = currentRevision + 1;
       while (!hit && (selected > 0)) {
         selected--;
@@ -401,13 +398,18 @@
     };
 
     tools.hand.onMouseDrag = function(event) {
-      if (tools.hand.dragged != undefined) {
-        var move = new paper.Point(event.point.x - tools.hand.stand.x, event.point.y - tools.hand.stand.y) ;
-        tools.hand.stand = event.point;
-        tools.hand.dragged.translate(move);
-        if (tools.hand.handle) {
-          var data = { handle: tools.hand.handle, move: move };
-          emitOperation('move', data);
+      var hand = tools.hand;
+      if (hand.dragged != undefined) {
+        var move = new paper.Point(event.point.x - hand.stand.x, event.point.y - hand.stand.y) ;
+        hand.stand = event.point;
+        hand.dragged.translate(move);
+        if (hand.handle) {
+          if (!hand.handle.callback) {
+            var data = { handle: hand.handle, move: move };
+            emitOperation('move', data);
+          } else {
+            hand.dragged.callback.data = move;
+          }
         }
         paper.view.draw();
       }
@@ -416,7 +418,7 @@
     tools.hand.onMouseUp = function(event) {
       if (tools.hand.dragged != undefined) {
         var move = new paper.Point(event.point.x - tools.hand.from.x, event.point.y - tools.hand.from.y);
-        if (!tools.hand.handle) {
+        if (!tools.hand.handle && !tools.hand.dragged.callback) {
           if (!tools.hand.dragged.move) {
             tools.hand.dragged.move = { x: 0, y: 0 };
           } 
