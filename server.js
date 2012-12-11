@@ -27,7 +27,7 @@ function broadcast (from, event, data) {
 /* COLLABORATION SERVER */
 
 var server = new ws.Server({ port: +process.argv[2] || 1234 }),
-    sockets = [], objects = [];
+    sockets = [], objects = {}, objRev = 0;
 
 server.on('connection', function(socket) {
 
@@ -51,7 +51,8 @@ server.on('connection', function(socket) {
         width: data.width,
         segments: []
       }
-      handle = objects.push(path) - 1;
+      objects[objRev] = path;
+      handle = objRev++;
       console.log('affecting handle', handle, 'to client', socket.upgradeReq.headers.origin);
       send(socket, 'handle', handle);
     }
@@ -62,7 +63,8 @@ server.on('connection', function(socket) {
   socket.on('path', function (data) {
     console.log('path from', socket.upgradeReq.headers.origin, 'data.handle', data.handle, 'handle', handle);
     if (data.handle === undefined) {
-      handle = data.handle = objects.push([]) - 1;
+      objects[objRev] = [];
+      handle = data.handle = objRev++;
       console.log('WARNING affecting path handle', handle, 'to client', socket.upgradeReq.headers.origin);
       send(socket, 'handle', handle);
     }
@@ -89,7 +91,7 @@ server.on('connection', function(socket) {
   });
 
   socket.on('delete', function(data) {
-    objects[data] = null;
+    delete objects[data];
     broadcast(socket, 'delete', data);
   });
 
@@ -111,8 +113,8 @@ http.createServer(function(req, res) {
     var form = new formidable.IncomingForm();
     form.parse(req, function(err, fields, files) {
       var id = uploads.push(files.upload.path) - 1;
-      var handle = objects.push({type: 'raster', handle: handle, id: id}) - 1;
-      broadcast(null, 'raster', { handle: handle, id: id });
+      objects[objRev] = {type: 'raster', handle: handle, id: id};
+      broadcast(null, 'raster', { handle: objRev++, id: id });
       res.end('yes');
     });
     return;

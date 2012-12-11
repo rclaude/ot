@@ -67,11 +67,8 @@
     /* UTILS */
 
     function redraw (since, data) {
-      // first we erase all the objects after since
-      for (var i = since, len = objects.length ; i < len ; i++)
-        if (objects[i]) objects[i].remove();
-      for (var i = since, until = since + data.length ; i < until ; i++) {
-        if (data[i] != null)
+      for (var i in data) {
+        if (data[i] != null) {
           switch (data[i].type) {
             case 'raster':
               var raster = data[i];
@@ -81,8 +78,11 @@
             default:
               objects[i] = rawToPath(data[i]);
           }
+          if (currentRevision < i) currentRevision = i;
+        } else {
+          console.error('data from server contain a null object !?');
+        }
       }
-      currentRevision = until - 1;
       paper.view.draw();
     }
 
@@ -206,7 +206,6 @@
     channel.on('handle', function(data) {
       console.log('handle', data, 'buffer.length', buffer.length);
       handle = data;
-      if (handle !== currentRevision + 1) console.error('our handle was late and we are doomed, ask for new state');
       objects[handle] = buffer[0];
       if (buffer[0].callback) {
         if (tools.hand.dragged === buffer[0]) {
@@ -215,8 +214,13 @@
           tools.hand.from = undefined;
           tools.hand.stand = undefined;
         }
-        if (buffer[0].callback.event == 'delete') buffer[0].callback.data = handle; 
-        channel.send(buffer[0].callback.event, buffer[0].callback.data);
+        switch (buffer[0].callback.event) {
+          case 'delete':
+            channel.send('delete', handle);
+          case 'move':
+            channel.send('move', { type: 'path', handle: handle, move: buffer[0].callback.event.move });
+        }
+        delete buffer[0].callback;
       }
       if (buffer.length > 1) {
         buffer.shift();
@@ -235,6 +239,7 @@
 
     channel.on('delete', function(handle) {
       objects[handle].remove();
+      delete objects[handle];
       paper.view.draw();
     });
 
@@ -347,6 +352,7 @@
             }
             emitOperation('delete', i);
             objects[i].remove();
+            delete objects[i];
           }
         }
       }
@@ -408,7 +414,7 @@
             var data = { handle: hand.handle, move: move };
             emitOperation('move', data);
           } else {
-            hand.dragged.callback.data = move;
+            hand.dragged.callback.move = move;
           }
         }
         paper.view.draw();
@@ -455,8 +461,13 @@
       switch (operation.event) {
         case 'path':
           if (buffer.indexOf(operation.ref) < 0 && operation.ref != undefined) {
-            channel.send('delete', operation.data.handle);
-            channel.handlers['delete'] (operation.data.handle);
+            try {
+              channel.handlers['delete'] (operation.data.handle);
+              channel.send('delete', operation.data.handle);
+            } catch (e) {
+              history.splice(historyPointer+1,1);
+              return;
+            }
           } else if (buffer.indexOf(operation.ref) > 0) {
             buffer.splice(buffer.indexOf(operation.ref),1);
             operation.ref.remove();
@@ -465,8 +476,13 @@
         case 'move':
           var inverse = new paper.Point(0 - operation.data.move.x, 0 - operation.data.move.y);
           if (buffer.indexOf(operation.ref) < 0) {
-            channel.send('move', { handle: operation.data.handle, move: inverse });
-            channel.handlers['move'] ({ handle: operation.data.handle, move: inverse });
+            try {
+              channel.handlers['move'] ({ handle: operation.data.handle, move: inverse });
+              channel.send('move', { handle: operation.data.handle, move: inverse });
+            } catch (e) {
+              history.splice(historyPointer+1,1);
+              return;
+            }
           } else if (buffer.indexOf(operation.ref) > 0) {
             operation.ref.translate(inverse);
             paper.view.draw();
