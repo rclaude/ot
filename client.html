@@ -6,42 +6,78 @@
   body {
     margin: 0px;
   }
-  form {
-    position: absolute;
-    right: 0px;
-    top: 0px;
+  #toolbar {
+    text-align: center;
+    border: 1px solid rgba(0, 0, 0, 0.05);
+    background-color: #f5f5f5;
+    font-size: 16px;
+    position: fixed;
+    right: 0;
+    width: 75px;
+    height: 100%;
+    z-index: 10;
   }
-  form input {
+  #toolbar a, #toolbar input, #toolbar div {
     display: block;
-    height: 20px;
-    width: 30px;
-    margin: 10px;
+    max-width: 32px;
+    margin-top: 32px; margin-left: auto; margin-right: auto;
+    font-family: "Ubuntu Mono", monospace;
+    font-size: 16px;
+    opacity: 0.6;
+    cursor: pointer;
+    text-decoration: none;
   }
-  #userInfo {
-    position: absolute;
-    left: 16px;
-    top: 10px;
-    color: #424242;
+  #toolbar a:hover, #toolbar a:focus, #toolbar input, #toolbar .active {
+    opacity: 1 !important;
+  }
+  #users {
+    position: fixed;
+    bottom: 5px;
+    left: 10px;
+    z-index: 10;
+    opacity: 0.6;
+  }
+  #users span {
+    font-family: "Ubuntu Mono", monospace;
     font-weight: bold;
+    font-size: 32px;
+  }
+  #canvas {
+    position: fixed;
+    width: 100%;
+    height: 100%;
+    z-index: 0;
   }
   .hidden {
-    display: none;
+    display: none !important;
   }
 </style>
 
-<form id=bar action=http://localhost:8080/upload enctype=multipart/form-data method=post target=uploader>
-  <input name=color  type=color>
-  <input name=width  type=number value=1 min=1 max=100>
-  <input name=tool   type=radio  value=pen checked> draw
-  <input name=tool   type=radio  value=eraser> erase
-  <input name=tool   type=radio  value=hand> move
-  <input name=upload type=file>
-  <input type=submit value=submit>
-  <input type=button value=download onclick=snapshot()></form> 
+<form id=toolbar action=http://localhost:8080/upload enctype=multipart/form-data method=post target=uploader>
+  <a id=pen title=draw href=javascript:select('pen') class=active>
+    <img src=images/pencil.png> </a>
+  <a id=eraser title=erase href=javascript:select('eraser')>
+    <img src=images/delete_point.png> </a>
+  <a id=hand title=move href=javascript:select('hand')>
+    <img src=images/move.png> </a>
+  <input name=color  type=color  title=color value=black>
+  <input name=width  type=number title=stroke value=1 min=1 max=99>
+  <input name=upload type=file   class=hidden>
+  <a title=upload href=javascript:upload()> <img src=images/picture.png> </a>
+  <a title=export href=javascript:snapshot()> <img src=images/print.png> </a>
 </form>
-<img src='./images/user.png'/>
-<div id=userInfo>&empty;</div> 
+
+<div id=users title=users>
+  <img src=./images/user.png>
+  <span>1</span>
+</div>
+
+<img src=./images/user.png class=hidden>
+<img src=./images/group.png class=hidden>
+<img src=./images/problem.png class=hidden>
+
 <canvas id=canvas resize></canvas>
+
 <iframe id=uploader src=http://localhost:8080 class=hidden height=500 width=700></iframe>
 
 <script src=./paper.js></script>
@@ -49,8 +85,8 @@
 <script>
 
   var channel = new WebRTC.DataChannel('ws://localhost:1234'),
-      bar = document.getElementById('bar'),
-      userInfo = document.getElementById('userInfo');
+      bar = document.getElementById('toolbar'),
+      users = document.getElementById('users');
 
   paper.install(window);
 
@@ -148,7 +184,8 @@
     });
 
     channel.on('nbUsers', function(data) {
-      userInfo.innerHTML =  data;
+      users.firstElementChild.src = './images/' + (data > 1 ? 'group' : 'user') + '.png';
+      users.lastElementChild.textContent = data;
     });
 
     // receive points from others
@@ -244,6 +281,9 @@
     });
 
     channel.on('close', function() {
+      users.title = 'server problem';
+      users.firstElementChild.src = './images/problem.png';
+      users.lastElementChild.textContent = '';
       // TODO try to reconnect
       //channel = new WebRTC.DataChannel('ws://localhost:1234');
     });
@@ -255,23 +295,20 @@
         tools = {};
 
     tool.onMouseDown = function (event) {
-      var id = document.querySelector('input[name=tool]:checked').value;
-      if (tools[id].onMouseDown !== undefined) {
-        tools[id].onMouseDown(event);
+      if (tools[window.toolname] && tools[window.toolname].onMouseDown) {
+        tools[window.toolname].onMouseDown(event);
       }
     };
 
     tool.onMouseDrag = function (event) {
-      var id = document.querySelector('input[name=tool]:checked').value;
-      if (tools[id].onMouseDrag !== undefined) {
-        tools[id].onMouseDrag(event);
+      if (tools[window.toolname] && tools[window.toolname].onMouseDrag) {
+        tools[window.toolname].onMouseDrag(event);
       }
     };
 
     tool.onMouseUp = function (event) {
-      var id = document.querySelector('input[name=tool]:checked').value;
-      if (tools[id].onMouseUp !== undefined) {
-        tools[id].onMouseUp(event);
+      if (tools[window.toolname] && tools[window.toolname].onMouseUp) {
+        tools[window.toolname].onMouseUp(event);
       }
     };
 
@@ -538,8 +575,22 @@
   };
 
   /* MISC */
-  function snapshot () {
-    window.open(canvas.toDataURL("image/png"));
+
+  var fileChooser = document.querySelector('input[name=upload]');
+
+  fileChooser.onchange = function () {
+    if (fileChooser.value.length > 0) document.forms[0].submit();
+  }
+
+  function upload() { fileChooser.click(); }
+
+  function snapshot () { window.open(canvas.toDataURL("image/png")); }
+
+  window.toolname = 'pen'; // default
+  function select(toolname) {
+    document.getElementById(window.toolname).classList.remove('active');
+    window.toolname = toolname;
+    document.getElementById(window.toolname).classList.add('active');
   }
 
 </script>

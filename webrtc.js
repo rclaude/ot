@@ -4,6 +4,7 @@ window.WebRTC = (function () {
     this.socket = new WebSocket(url);
     this.handlers = {};
     this.socket.onopen = this.onopen.bind(this);
+    this.socket.onclose = this.onclose.bind(this);
     this.socket.onmessage = this.onmessage.bind(this);
   };
 
@@ -14,19 +15,22 @@ window.WebRTC = (function () {
     },
 
     onopen: function () {
-      console.log('open');
+      this.emit('open');
+    },
+
+    onclose: function () {
+      this.emit('close');
     },
 
     onmessage: function(message) {
       message = JSON.parse(message.data);
-      if (this.handlers[message.event]) {
-        this.handlers[message.event] (message.data);
-      }
+      this.emit(message.event, message.data);
     },
 
     emit: function(event, data) {
-      console.log('this should not happen');
-      this.socket.emit(event, data);
+      if (this.handlers[event]) {
+        this.handlers[event] (data);
+      }
     },
 
     send: function(event, data) {
