@@ -226,11 +226,7 @@
       img.onload = function() {
         var raster = new paper.Raster(img.id);
         raster.type = 'raster';
-        if (data.position != null) {
-          raster.position = new paper.Point(data.position);
-        } else {
-          raster.position = new paper.Point(canvas.width/2, canvas.height/2);
-        }
+        raster.position = new paper.Point(data.position);
         objects[data.handle] = raster;
         paper.view.draw();
       };

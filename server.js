@@ -73,20 +73,20 @@ server.on('connection', function(socket) {
   });
 
   socket.on('move', function(data) {
+    var obj = objects[data.handle];
     switch (data.type) {
       case 'raster':
-          objects[data.handle].position.x += data.move.x;
-          objects[data.handle].position.y += data.move.y;
+          obj.position.x += data.move.x;
+          obj.position.y += data.move.y;
       default:
-        if (!objects[data.handle].move) {
-          objects[data.handle].move = data.move;
+        if (!obj.move) {
+          obj.move = data.move;
         } else {
-          objects[data.handle].move.x += data.move.x;
-          objects[data.handle].move.y += data.move.y;
+          obj.move.x += data.move.x;
+          obj.move.y += data.move.y;
         }
     }
     broadcast(socket, 'move', data);
-   
   });
 
   socket.on('delete', function(data) {
@@ -112,8 +112,8 @@ http.createServer(function(req, res) {
     var form = new formidable.IncomingForm();
     form.parse(req, function(err, fields, files) {
       var id = uploads.push(files.upload.path) - 1;
-      objects[objRev] = {type: 'raster', handle: handle, id: id};
-      broadcast(null, 'raster', { handle: objRev++, id: id });
+      objects[objRev] = {type: 'raster', handle: objRev, id: id};
+      broadcast(null, 'raster', { handle: objRev++, id: id, position: { x: 500, y: 300 } });
       res.end('yes');
     });
     return;
