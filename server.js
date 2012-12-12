@@ -53,7 +53,7 @@ server.on('connection', function(socket) {
       }
       objects[objRev] = path;
       handle = objRev++;
-      console.log('affecting handle', handle, 'to client', socket.upgradeReq.headers.origin);
+      console.log('handle', handle, 'on POINT \t client', socket.upgradeReq.headers.origin);
       send(socket, 'handle', handle);
     }
     objects[handle].segments.push(data);
@@ -61,12 +61,11 @@ server.on('connection', function(socket) {
   });
 
   socket.on('path', function (data) {
-    console.log('path from', socket.upgradeReq.headers.origin, 'data.handle', data.handle, 'handle', handle);
     if (data.handle === undefined) {
       objects[objRev] = [];
       handle = data.handle = objRev++;
-      console.log('WARNING affecting path handle', handle, 'to client', socket.upgradeReq.headers.origin);
       send(socket, 'handle', handle);
+      console.log('handle', handle, 'on PATH \t client', socket.upgradeReq.headers.origin);
     }
     objects[data.handle] = data.obj;
     broadcast(socket, 'path', data);

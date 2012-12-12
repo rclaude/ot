@@ -171,9 +171,8 @@
     function emitOperation (event, data) {
       if (buffer.length < 2) { // sync
         channel.send(event, data);
-        if (handle != undefined && event == 'path') { // handle has been received
+        if (event === 'path') {
           buffer.shift();
-          handle = undefined;
         }
       }
     }
@@ -244,26 +243,34 @@
       console.log('handle', data, 'buffer.length', buffer.length);
       handle = data;
       objects[handle] = buffer[0];
-      if (buffer[0].callback) {
+      if (buffer[0].todo !== undefined) {
+        console.log('buffer[0] had a todo');
         if (tools.hand.dragged === buffer[0]) {
+          console.log('iwe werre dragging buffer[0]');
           tools.hand.selected = undefined;
           tools.hand.dragged = undefined;
           tools.hand.from = undefined;
           tools.hand.stand = undefined;
         }
-        switch (buffer[0].callback.event) {
+        switch (buffer[0].todo) {
           case 'delete':
             channel.send('delete', handle);
-          case 'move':
-            channel.send('move', { type: 'path', handle: handle, move: buffer[0].callback.event.move });
+            break;
+          case 'path':
+            var data = { handle: handle, obj: pathToRaw(buffer[0]) };
+            channel.send('path', data);
         }
-        delete buffer[0].callback;
-      }
-      if (buffer.length > 1) {
-        buffer.shift();
-        channel.send('path', buffer[0]);
         handle = undefined;
-        console.log('we had a path waiting in the buffer');
+        delete buffer[0].todo;
+        buffer.shift();
+        if (buffer.length > 0) {
+          if (buffer[0].todo !== undefined) {
+            var data = { obj: pathToRaw(buffer[0]) };
+            channel.send('path', data);
+          }
+          handle = undefined;
+          console.log('we had a path waiting in the buffer');
+        }      
       }
       currentRevision++;
     });
@@ -328,25 +335,41 @@
       path.color = point.color; // duplicated information !
       path.strokeColor = point.color;
       path.strokeWidth = point.width;
+      path.sendcount = 1;
     };
 
     // When the user drags the mouse, add points to current object and send them
     tools.pen.onMouseDrag = function (event) {
       var path = buffer[buffer.length - 1];
       path.add(event.point);
-      emitOperation('point', event.point);
+      if (handle !== undefined) {
+        while (path.sendcount < path._segments.length) {
+          var p = path._segments[path.sendcount].point;
+          emitOperation('point', { x: p.x, y: p.y });
+          path.sendcount++;
+        }
+      }
     };
 
     // When the mouse is released, we compress the current object
     tools.pen.onMouseUp = function (event) {
       var path = buffer[buffer.length - 1];
-      path.simplify(10);
-      paper.view.draw();
-      path.raw = pathToRaw(path);
-      var data =  { handle: handle, obj: path.raw };
-      emitOperation('path', data);
-      addToHistory('path', data, path);
-      handle = undefined;
+      delete path.sendcount;
+      try { 
+        path.simplify(10);
+        if (handle !== undefined) {
+          var data =  { handle: handle, obj: pathToRaw(path) };
+          emitOperation('path', data);
+          addToHistory('path', data, path);
+          handle = undefined;
+        } else {
+          console.log('path not send : no handle');
+          path.todo = 'path';
+        }
+        paper.view.draw();
+      } catch(e) {
+        console.error('paper.js BUG REPORT');
+      }
     };
 
     // ERASER
@@ -373,9 +396,11 @@
             buffer.splice(i, 1);
           }
       }
-      if (buffer[0] && buffer[0].hitTest(event.point, eraserHitOptions) != null) {
+      if (buffer[0] && 
+          (!buffer[0].todo != 'delete') &&
+          buffer[0].hitTest(event.point, eraserHitOptions) != null ) {
         buffer[0].remove();
-        buffer[0] = {callback: {event:'delete'}};
+        buffer[0] = {todo: 'delete'};
       }
       for (var i = currentRevision ; i >= 0 ; i--) {
         if (objects[i] !== undefined) {
@@ -422,7 +447,6 @@
           tools.hand.dragged = buffer[selected];
           tools.hand.from = event.point;
           tools.hand.stand = event.point;
-          if (selected == 0) buffer[0].callback = { event: 'move',  data: {x:0, y:0} };
         }
       }
       selected = currentRevision + 1;
@@ -447,11 +471,11 @@
         hand.stand = event.point;
         hand.dragged.translate(move);
         if (hand.handle) {
-          if (!hand.handle.callback) {
+          if (!hand.handle.todo) {
             var data = { handle: hand.handle, move: move };
             emitOperation('move', data);
           } else {
-            hand.dragged.callback.move = move;
+            hand.dragged.move = hand.dragger.move + move;
           }
         }
         paper.view.draw();
@@ -461,7 +485,7 @@
     tools.hand.onMouseUp = function(event) {
       if (tools.hand.dragged != undefined) {
         var move = new paper.Point(event.point.x - tools.hand.from.x, event.point.y - tools.hand.from.y);
-        if (!tools.hand.handle && !tools.hand.dragged.callback) {
+        if (!tools.hand.handle && tools.hand.dragged.todo === undefined) {
           if (!tools.hand.dragged.move) {
             tools.hand.dragged.move = { x: 0, y: 0 };
           } 
@@ -570,7 +594,7 @@
 
     function addToHistory (event, data, ref, lostData) {
       historyPointer = history.push( {event: event, data: data, ref: ref, lostData: lostData} ) - 1;
-      console.log('historyPointer', historyPointer);
+      console.log('historyPointer', historyPointer, buffer.length, buffer);
     }
   };
 
