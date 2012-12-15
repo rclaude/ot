@@ -250,10 +250,12 @@
         }
         switch (buffer[0].todo) {
           case 'delete':
+            addToHistory('delete', handle, null, buffer[0].raw);
             channel.send('delete', handle);
             break;
           case 'path':
             var data = { handle: handle, obj: pathToRaw(buffer[0]) };
+            addToHistory('delete', handle, buffer[0]);
             channel.send('path', data);
         }
         handle = undefined;
@@ -361,6 +363,7 @@
         } else {
           console.log('path not send : no handle');
           path.todo = 'path';
+          addToHistory('path', data, path);
         }
         paper.view.draw();
       } catch(e) {
@@ -383,20 +386,28 @@
         if (buffer[i].hitTest(event.point, eraserHitOptions) != null) {
           switch (buffer[i].type) {
             case 'raster':
-              addToHistory('delete', i, null, rasterToRaw(buffer[i]));
+              addToHistory('delete', null, null, rasterToRaw(buffer[i]));
               break;
             default:
-              addToHistory('delete', i, null, pathToRaw(buffer[i]));
-            }
-            buffer[i].remove();
-            buffer.splice(i, 1);
+              addToHistory('delete', null, null, pathToRaw(buffer[i]));
           }
+          buffer[i].remove();
+          buffer.splice(i, 1);
+        }
       }
       if (buffer[0] && 
           (!buffer[0].todo != 'delete') &&
           buffer[0].hitTest(event.point, eraserHitOptions) != null ) {
+        var raw;
+        switch (buffer[0].type) {
+          case 'raster':
+            raw = rasterToRaw(buffer[0]);
+            break;
+          default:
+            raw = pathToRaw(buffer[0]);
+        }
         buffer[0].remove();
-        buffer[0] = {todo: 'delete'};
+        buffer[0] = {todo: 'delete', raw: raw};
       }
       for (var i = currentRevision ; i >= 0 ; i--) {
         if (objects[i] !== undefined) {
@@ -511,7 +522,7 @@
     });
 
     function undo () {
-      if (historyPointer < 1) return;
+      if (historyPointer < 0) return;
       var operation = history[historyPointer];
       historyPointer--;
       console.log('undo', operation);
@@ -525,6 +536,9 @@
               history.splice(historyPointer+1,1);
               return;
             }
+          } else if (buffer.indexOf(operation.ref) == 0) {
+            operation.ref.todo = 'delete';
+            operation.ref.remove();
           } else if (buffer.indexOf(operation.ref) > 0) {
             buffer.splice(buffer.indexOf(operation.ref),1);
             operation.ref.remove();
@@ -543,7 +557,7 @@
           } else if (buffer.indexOf(operation.ref) > 0) {
             operation.ref.translate(inverse);
             paper.view.draw();
-            if (!operation.ref.raw.move) {
+            if (!operation.ref.move) {
               operation.ref.raw.move = { x: 0, y: 0 };
             } 
             operation.ref.raw.move.x += inverse.x;
@@ -589,7 +603,7 @@
     }
 
     function addToHistory (event, data, ref, lostData) {
-      historyPointer = history.push( {event: event, data: data, ref: ref, lostData: lostData} ) - 1;
+      historyPointer = history.push( { event: event, data: data, ref: ref, lostData: lostData } ) - 1;
       console.log('historyPointer', historyPointer, buffer.length, buffer);
     }
   };
