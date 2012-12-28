@@ -242,7 +242,7 @@
       if (buffer[0].todo !== undefined) {
         console.log('buffer[0] had a todo');
         if (tools.hand.dragged === buffer[0]) {
-          console.log('iwe werre dragging buffer[0]');
+          console.log('we were dragging buffer[0]');
           tools.hand.selected = undefined;
           tools.hand.dragged = undefined;
           tools.hand.from = undefined;
@@ -396,7 +396,7 @@
         }
       }
       if (buffer[0] && 
-          (!buffer[0].todo != 'delete') &&
+          (buffer[0].todo != 'delete') &&
           buffer[0].hitTest(event.point, eraserHitOptions) != null ) {
         var raw;
         switch (buffer[0].type) {
@@ -477,7 +477,7 @@
         var move = new paper.Point(event.point.x - hand.stand.x, event.point.y - hand.stand.y) ;
         hand.stand = event.point;
         hand.dragged.translate(move);
-        if (hand.handle) {
+        if (hand.handle !== undefined) {
           if (!hand.handle.todo) {
             var data = { handle: hand.handle, move: move };
             emitOperation('move', data);
@@ -558,10 +558,10 @@
             operation.ref.translate(inverse);
             paper.view.draw();
             if (!operation.ref.move) {
-              operation.ref.raw.move = { x: 0, y: 0 };
+              operation.ref.move = { x: 0, y: 0 };
             } 
-            operation.ref.raw.move.x += inverse.x;
-            operation.ref.raw.move.y += inverse.y;
+            operation.ref.move.x += inverse.x;
+            operation.ref.move.y += inverse.y;
           }
           break;
         case 'delete':
