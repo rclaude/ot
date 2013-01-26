@@ -74,7 +74,7 @@ server.on('connection', function(socket) {
 
   socket.on('move', function(data) {
     var obj = objects[data.handle];
-    switch (data.type) {
+    switch (obj.type) {
       case 'raster':
           obj.position.x += data.move.x;
           obj.position.y += data.move.y;
@@ -112,7 +112,7 @@ http.createServer(function(req, res) {
     var form = new formidable.IncomingForm();
     form.parse(req, function(err, fields, files) {
       var id = uploads.push(files.upload.path) - 1;
-      objects[objRev] = {type: 'raster', handle: objRev, id: id};
+      objects[objRev] = {type: 'raster', handle: objRev, id: id, position: { x: 500, y: 300 } };
       broadcast(null, 'raster', { handle: objRev++, id: id, position: { x: 500, y: 300 } });
       res.end('yes');
     });

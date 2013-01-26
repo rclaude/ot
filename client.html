@@ -393,6 +393,7 @@
           }
           buffer[i].remove();
           buffer.splice(i, 1);
+          return;
         }
       }
       if (buffer[0] && 
@@ -408,6 +409,7 @@
         }
         buffer[0].remove();
         buffer[0] = {todo: 'delete', raw: raw};
+        return;
       }
       for (var i = currentRevision ; i >= 0 ; i--) {
         if (objects[i] !== undefined) {
@@ -422,6 +424,7 @@
             emitOperation('delete', i);
             objects[i].remove();
             delete objects[i];
+            return;
           }
         }
       }
