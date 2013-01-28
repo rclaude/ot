@@ -111,10 +111,12 @@ http.createServer(function(req, res) {
     // parse a file upload
     var form = new formidable.IncomingForm();
     form.parse(req, function(err, fields, files) {
-      var id = uploads.push(files.upload.path) - 1;
-      objects[objRev] = {type: 'raster', handle: objRev, id: id, position: { x: 500, y: 300 } };
-      broadcast(null, 'raster', { handle: objRev++, id: id, position: { x: 500, y: 300 } });
-      res.end('yes');
+      if(files.upload.type.split("/")[0] === "image"){
+        var id = uploads.push(files.upload.path) - 1;
+        objects[objRev] = {type: 'raster', handle: objRev, id: id, position: { x: 500, y: 300 } };
+        broadcast(null, 'raster', { handle: objRev++, id: id, position: { x: 500, y: 300 } });
+        res.end('yes');
+      }
     });
     return;
   } else if (req.url.slice(0,5) == '/img/') {
