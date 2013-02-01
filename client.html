@@ -152,6 +152,7 @@
         });
       }
       return {
+        type: 'path',
         segments: segments,
         color: path.color,
         width: path.strokeWidth
@@ -159,10 +160,11 @@
     }
 
     function rasterToRaw (raster) {
-      var raw = {};
-      raw.id = raster._image.id.slice(3);
-      //raw.position = { raster._position.x, raster._position.y };
-      return raw;
+      return {
+        type: 'raster',
+        id: raster._image.id.slice(3),
+        position: { x: raster._position.x, y: raster._position.y }
+      };
     }
 
     /* NETWORK */
@@ -384,13 +386,7 @@
     tools.eraser.onMouseDown = tools.eraser.onMouseDrag = function(event) {
       for (var i = buffer.length - 1 ; i > 0 ; i--) {
         if (buffer[i].hitTest(event.point, eraserHitOptions) != null) {
-          switch (buffer[i].type) {
-            case 'raster':
-              addToHistory('delete', null, null, rasterToRaw(buffer[i]));
-              break;
-            default:
-              addToHistory('delete', null, null, pathToRaw(buffer[i]));
-          }
+          addToHistory('delete', null, null, pathToRaw(buffer[i]));
           buffer[i].remove();
           buffer.splice(i, 1);
           return;
@@ -399,14 +395,7 @@
       if (buffer[0] && 
           (buffer[0].todo != 'delete') &&
           buffer[0].hitTest(event.point, eraserHitOptions) != null ) {
-        var raw;
-        switch (buffer[0].type) {
-          case 'raster':
-            raw = rasterToRaw(buffer[0]);
-            break;
-          default:
-            raw = pathToRaw(buffer[0]);
-        }
+        var raw = pathToRaw(buffer[0]);
         buffer[0].remove();
         buffer[0] = {todo: 'delete', raw: raw};
         return;
@@ -568,11 +557,18 @@
           }
           break;
         case 'delete':
-          if (operation.data != undefined) {
-            channel.send('path', {handle: operation.data, obj: operation.lostData});
-            channel.handlers['path'] ({handle: operation.data, obj: operation.lostData});
+          console.log(operation);
+          if (operation.data != undefined) { // shared object
+            switch (operation.lostData.type) {
+              case 'raster':
+                channel.send('raster', operation.lostData);
+                break;
+              case 'path':
+                channel.send('path', {handle: operation.data, obj: operation.lostData});
+                channel.handlers['path'] ({handle: operation.data, obj: operation.lostData});
+            }
           } else {
-            operation.ref = rawToPath(operation.lostData);
+            operation.ref = (operation.lostData.type === 'path') ? rawToPath(operation.lostData) : rawToRaster(operation.lostData);
             buffer.push(operation.ref);
           }
       }
